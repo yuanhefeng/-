@@ -218,7 +218,7 @@ void InterLock::readPendingDatagrams()
     }
 }
 
-//【00操作·上电解锁】
+//【00操作·上电解锁】√
 void InterLock::ShangDian()
 {
     SwitchData switchData;
@@ -268,9 +268,38 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
     }
     else if(type ==2){   //引导进路
-        QString LineName = beginSignalName + "引导";
+        //QString LineName = beginSignalName + "引导";
         //进路中所有的道岔
-        sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND RouteName = \"%2\"").arg(beginSignalName).arg(LineName);
+        sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\"").arg(beginSignalName);
+        QSqlQuery queryYD(sql);
+        //引导进路定反位判断
+        while(queryYD.next())
+        {
+            SwitchNames = queryYD.value(7).toString();
+            QString EndSignalName = queryYD.value(4).toString();
+            QByteArray YDnum = switchesStrextract(SwitchNames);
+            QString switchnameYD;
+            for(int k=0;k<YDnum.count();k+=2){
+                int switchname = YDnum[k];//进路途径地道岔名字,1反位，2定位
+                switchnameYD = QString::number(switchname, 10);
+                QList<int> switchidlist = SelectSwitchIdForName(switchnameYD);
+                int OneK = YDnum[k+1]-1;
+                int TwoK = YDnum[k+1];
+                if(SwitchDataMap.find(switchidlist[0]).value().switchStates != OneK || TwoK != 0x02){
+                    if(SwitchDataMap.find(switchidlist[1]).value().switchStates != TwoK || TwoK != 0x01){
+                        break;
+                    }
+                }
+                if(k==YDnum.count()-2){
+                   endSignalName = EndSignalName;
+                }
+            }
+        }
+        if(endSignalName == NULL || endSignalName == ""){
+            return;
+        }else{
+            sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
+        }
     }
     QSqlQuery queryinterlocking(sql);
 
@@ -1010,7 +1039,7 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
 
 }
 
-//【03操作·引导总锁】
+//【03操作·引导总锁】 √
 void InterLock::YinDaoZS(byte Direction)
 {
     //01为锁闭状态，02为未锁闭
@@ -1040,7 +1069,7 @@ void InterLock::YinDaoZS(byte Direction)
     }
 }
 
-//【04操作·封锁按钮（封锁/取消封锁）】
+//【04操作·封锁按钮（封锁/取消封锁）】√
 void InterLock::FengSuo(byte Id,byte Type)
 {
     QString thisid = QString::number(Id, 10);
@@ -1210,10 +1239,11 @@ void InterLock::QuGJ(byte Snum)
     }
 }
 
-//【06操作·信号重开】
+//【06操作·信号重开】 √
 void InterLock::XinHaoCK(byte SignalID)
 {
     QString beginSignalName;
+    QString endid;
     QString selectname =QString("select *from signalinfo WHERE signalinfo.SignalID=%1").arg(SignalID);
     QSqlQuery sqlname(selectname);
     while(sqlname.next())
@@ -1228,6 +1258,13 @@ void InterLock::XinHaoCK(byte SignalID)
             QString type=RuleMap[beginSignalName][0];
             QString sectionname=RuleMap[beginSignalName][1];
             QStringList SectionName=sectionname.split(",");
+            QString sectionend =SectionName[SectionName.length()-1];
+            QString selectendid = QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(sectionend);
+            QSqlQuery sqlendid(selectendid);
+            while(sqlendid.next())
+            {
+                endid=sqlendid.value(0).toString();
+            }
             for(int a=0; a<SectionName.length();a++)
             {
                 qDebug()<<SectionName[a];
@@ -1238,55 +1275,97 @@ void InterLock::XinHaoCK(byte SignalID)
                 {
                     sectionid=sqlid.value(0).toString();
                     qDebug()<<sectionid;
-                    if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01)
+                    if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)//||SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01
                     {
-                        if(type=='4')
-                        {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
-                        }
-                        else
-                        {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
-                        }
+//                        if(type=='4')
+//                        {
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
+//                        }
+//                        else
+//                        {
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
+//                        }
                         return;
                     }
-                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x02)
-                    {
-                        continue;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x01&&SectionsDataMap.find(sectionid).value().sectionStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x01&&SectionsDataMap.find(sectionid).value().sectionStatus==0x02)//如果信号机锁闭并且无故障
-                        {if(type=='1')
+//                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x02)
+//                    {
+//                        continue;
+//                    }
+//                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x01&&SectionsDataMap.find(sectionid).value().sectionStatus==0x01)
+//                    {
+//                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                        return;
+//                    }
+                    else if(endid==sectionid)//检查全部区段都没有故障占用
                         {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                        }
-                        if(type=='2')
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                         {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            if(type=='1')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
+                            }
+                            else if(type=='2')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                            }
+                            else if(type=='3')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                            }
+                            else if(type=='4')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            }
+                            else if(type=='5')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,38);
+                            }
+
                         }
-                        if(type=='3')
-                        {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                        else {
+                            if(type=='1')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            }
+                            if(type=='2')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            }
+                            if(type=='3')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            }
+                            if(type=='4')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            }
+                            if(type=='5')
+                            {
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,38);
+                            }
                         }
-                        if(type=='4')
-                        {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                        }
-                        if(type=='5')
-                        {
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                        }
+
+//                        }
                     }
                 }
             }
@@ -1298,17 +1377,21 @@ void InterLock::XinHaoCK(byte SignalID)
     }
 }
 
-//【07操作·道岔总定反,单解锁】
+//【07操作·道岔总定反,单解锁】 √
 void InterLock::ZongDingFanDanJieSuo(byte Snum,byte Sstatus)
 {
     int SwitchID;
     int SwitchNameID;
+    int SwitchName;
+    int at=0;
     QString selectSwitchID = QString("select *from switch WHERE switch.SwitchNameID =%1").arg(Snum);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
+        at++;
         SwitchID=sqlSwitchID.value(0).toInt();
         SwitchNameID =sqlSwitchID.value(5).toInt();
+        SwitchName = sqlSwitchID.value(1).toInt();
         //道岔单锁
         if(Sstatus == 0x03)
         {
@@ -1317,7 +1400,16 @@ void InterLock::ZongDingFanDanJieSuo(byte Snum,byte Sstatus)
                 return;
             }
             else
+                {
                 SwitchDataMap.find(SwitchID).value().switchLock = 0x01;
+                if(at%2==1)
+                {
+                    MessageListAdd(2,SwitchID,62);
+                }
+
+            }
+            continue;
+
         }
         //道岔解锁
         if(Sstatus == 0x04)
@@ -1327,39 +1419,89 @@ void InterLock::ZongDingFanDanJieSuo(byte Snum,byte Sstatus)
                 return;
             }
             else
+            {
                 SwitchDataMap.find(SwitchID).value().switchLock = 0x02;
-        }
-        //道岔定位
-        if(Sstatus == 0x01)
-        {
-            if(0x00 ==SwitchDataMap.find(SwitchID).value().switchPos)//如果是定位就启用
-            {
-                SwitchDataMap.find(SwitchID).value().switchStates = 0x01;
+                if(at%2==1)
+                {
+                    MessageListAdd(2,SwitchID,67);
+                }
+
             }
-            else if(0x01 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是反位就不启用
-            {
-                SwitchDataMap.find(SwitchID).value().switchStates = 0x00;
-            }
+            continue;
+
+
         }
-        //道岔反位
-        if(Sstatus == 0x02)
+        if(SwitchDataMap.find(SwitchID).value().SwitchLoss==0x01||SwitchDataMap.find(SwitchID).value().switchLock==0x01)//在道岔失表的或锁闭情况
         {
-            if(0x01 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是反位就启用
+            if(at==1)
             {
-                SwitchDataMap.find(SwitchID).value().switchStates = 0x01;
+                MessageListAdd(2,SwitchID,136);
+            }
+            if(at==3)
+            {
+                MessageListAdd(2,SwitchID,136);
             }
 
-            else if(0x00 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是定位不启用
+            continue;
+        }
+        else
+        {
+
+            //道岔定位
+            if(Sstatus == 0x01)
             {
-                SwitchDataMap.find(SwitchID).value().switchStates = 0x00;
+                if(0x00 ==SwitchDataMap.find(SwitchID).value().switchPos)//如果是定位就启用
+                {
+                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x01)
+                    {
+                        return;
+                    }
+                    else {
+                        SwitchDataMap.find(SwitchID).value().switchStates = 0x01;
+                        MessageListAdd(2,SwitchID,60);
+                    }
+
+                }
+                else if(0x01 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是反位就不启用
+                {
+                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x00)
+                    {
+                        return;
+                    }
+                    else SwitchDataMap.find(SwitchID).value().switchStates = 0x00;
+                }
+            }
+            //道岔反位
+            if(Sstatus == 0x02)
+            {
+                if(0x01 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是反位就启用
+                {
+                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x01)
+                    {
+                        return;
+                    }
+                    else {SwitchDataMap.find(SwitchID).value().switchStates = 0x01;
+                    MessageListAdd(2,SwitchID,61);}
+                }
+
+                else if(0x00 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是定位不启用
+                {
+                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x00)
+                    {
+                        return;
+                    }
+                    else SwitchDataMap.find(SwitchID).value().switchStates = 0x00;
+                }
             }
         }
     }
 }
 
-//【08操作·灯丝断丝】
+//【08操作·灯丝断丝】 √
 void InterLock::DSDS(byte SignalID, byte Status)
 {
+    QString sectionid;
+    QString sectionendid;
     QString beginSignalName;
     QString selectSignalName = QString("select *from signalinfo WHERE signalinfo.SignalID=%1").arg(SignalID);
     QSqlQuery sqlSignalName(selectSignalName);
@@ -1373,1345 +1515,112 @@ void InterLock::DSDS(byte SignalID, byte Status)
         for (int i=0;i<RuleMap[beginSignalName].length();i++)
         {
             QString type = RuleMap[beginSignalName][0];
-            qDebug()<<type;
-            UpdateSignalStatus(type,Status);
-            if(type == '1')//正线进站进路
+            QString sectionNameList =RuleMap[beginSignalName][1];
+            QStringList sectionName = sectionNameList.split(",");
+            QString sectionend =sectionName[sectionName.length()-1];
+            QString selectendid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionend);
+            QSqlQuery sqlendid(selectendid);
+            while(sqlendid.next())
             {
-                if(Status==0x01)
+                sectionendid=sqlendid.value(0).toString();
+            }
+            for(int in=0;in<sectionName.length();in++)
+            {
+            QString selectsectionid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionName[in]);
+            QSqlQuery sqlsectionid(selectsectionid);
+            while(sqlsectionid.next())
+            {
+                sectionid=sqlsectionid.value(0).toString();
+                //如果进路有故障占用，信号机灯丝断无颜色变化，信号灯锁闭的时候，信号机灯丝断丝无颜色变化
+                if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().signalLockStatus==0x01)
                 {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                    if(Status==0x01)
                     {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x02)
-                {
-                    if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                }
-                if(Status==0x03)//清除故障
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                }
-                if(Status==0x04)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x05)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x06)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else
+                        {
+                            MessageListAdd(3,SignalID,31);
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            return;
+                        }
 
-            }
-            else if(type == '2')//侧线进站进路
-            {
-                if(Status==0x01)//红蓝主灯丝断
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x02)
-                {
-                    if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                }
-                if(Status==0x03)//清除故障
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                }
-                if(Status==0x04)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x05)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x06)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-            }
-            else if(type =='3')//出站列车进路
-            {
-                if(Status==0x01)//红蓝主灯丝断
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x02)
-                {
-                    if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                }
-                if(Status==0x03)//清除故障
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                }
-                if(Status==0x04)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x05)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-                if(Status==0x06)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                    }
-                }
-            }
-            else if(type =='4')//调车进路
-            {
-                if(Status==0x01)//红蓝主灯丝断
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                }
-                if(Status==0x02)
-                {
-                    if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                }
-                if(Status==0x03)//清除故障
-                {
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                }
-                if(Status==0x04)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                }
-                if(Status==0x05)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                }
-                if(Status==0x06)
-                {
-                    if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                    {
-                        return;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
-                    }
-                    else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                    {
-                        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                        SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                     }
-                }
+                    if(Status==0x02)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else {
+                            MessageListAdd(3,SignalID,33);
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            return;
+                        }
+                    }
+                    if(Status==0x03)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x02&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x02)
+                        {
+                            return;
+                        }
+                        else
+                        {
+                            MessageListAdd(3,SignalID,35);
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x02;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x02;
+                            return;
+                        }
 
-            }
-            else if(type =='5')//出站调车进路
+                    }
+                    if(Status==0x04)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else {
+                            MessageListAdd(3,SignalID,32);
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            return;
+                        }
+                    }
+                    if(Status==0x05)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else {
+                            MessageListAdd(3,SignalID,34);
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                            return;
+                        }
+                    }
+                    if(Status==0x06)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x02&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x02)
+                        {
+                            return;
+                        }
+                        else
+                        {
+                            MessageListAdd(3,SignalID,36);
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x02;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x02;
+                            return;
+                        }
+
+                    }
+                }
+//                 否则如果区段没有故障且信号机开放的时候
+            else if(sectionendid==sectionid&&SignalsDataMap.find(SignalID).value().signalLockStatus==0x02)
+            {
+                if(type == '1')//正线进站进路
                 {
-                    if(Status==0x01)//红蓝主灯丝断
+                    if(Status==0x01)
                     {
                         if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                         {
@@ -2720,7 +1629,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -2730,7 +1639,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
@@ -2757,6 +1666,11 @@ void InterLock::DSDS(byte SignalID, byte Status)
                             SignalsDataMap.find(SignalID).value().DSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,31);
+                        }
+
                     }
                     if(Status==0x02)
                     {
@@ -2767,7 +1681,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                         {
@@ -2802,7 +1716,11 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,33);
                         }
                     }
                     if(Status==0x03)//清除故障
@@ -2814,7 +1732,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
@@ -2824,7 +1742,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
@@ -2834,7 +1752,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                           SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
@@ -2844,7 +1762,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
@@ -2855,7 +1773,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
@@ -2867,13 +1785,17 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,35);
                         }
                     }
                     if(Status==0x04)
@@ -2885,7 +1807,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
@@ -2905,14 +1827,9 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                        {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                        }
-                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
@@ -2921,6 +1838,15 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,32);
                         }
                     }
                     if(Status==0x05)
@@ -2969,6 +1895,10 @@ void InterLock::DSDS(byte SignalID, byte Status)
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,34);
+                        }
                     }
                     if(Status==0x06)
                     {
@@ -2979,7 +1909,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -2989,7 +1919,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -2999,7 +1929,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -3009,7 +1939,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -3040,9 +1970,1447 @@ void InterLock::DSDS(byte SignalID, byte Status)
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,36);
+                        }
                     }
+
+                }
+                else if(type == '2')//侧线进站进路
+                {
+                    if(Status==0x01)//红蓝主灯丝断
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,31);
+                        }
+                    }
+                    if(Status==0x02)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,33);
+                        }
+                    }
+                    if(Status==0x03)//清除故障
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,35);
+                        }
+                    }
+                    if(Status==0x04)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,32);
+                        }
+                    }
+                    if(Status==0x05)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,34);
+                        }
+                    }
+                    if(Status==0x06)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,36);
+                        }
+                    }
+                }
+                else if(type =='3')//出站列车进路
+                {
+                    if(Status==0x01)//红蓝主灯丝断
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,31);
+                        }
+                    }
+                    if(Status==0x02)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,33);
+                        }
+                    }
+                    if(Status==0x03)//清除故障
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,35);
+                        }
+                    }
+                    if(Status==0x04)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,32);
+                        }
+                    }
+                    if(Status==0x05)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,34);
+                        }
+                    }
+                    if(Status==0x06)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,36);
+                        }
+                    }
+                }
+                else if(type =='4')//调车进路
+                {
+                    if(Status==0x01)//红蓝主灯丝断
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,31);
+                        }
+                    }
+                    if(Status==0x02)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,33);
+                        }
+                    }
+                    if(Status==0x03)//清除故障
+                    {
+                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,35);
+                        }
+                    }
+                    if(Status==0x04)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,32);
+                        }
+                    }
+                    if(Status==0x05)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,34);
+                        }
+                    }
+                    if(Status==0x06)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                        {
+                            return;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                        {
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+                        }
+                        if(i==0)
+                        {
+                            MessageListAdd(3,SignalID,36);
+                        }
+                    }
+
+                }
+                else if(type =='5')//出站调车进路
+                    {
+                        if(Status==0x01)//红蓝主灯丝断
+                        {
+                            if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                            {
+                                return;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,31);
+                            }
+                        }
+                        if(Status==0x02)
+                        {
+                            if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                return;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,33);
+                            }
+                        }
+                        if(Status==0x03)//清除故障
+                        {
+                            if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                return;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,35);
+                            }
+                        }
+                        if(Status==0x04)
+                        {
+                            if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                            {
+                                return;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,32);
+                            }
+                        }
+                        if(Status==0x05)
+                        {
+                            if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                            {
+                                return;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,34);
+                            }
+                        }
+                        if(Status==0x06)
+                        {
+                            if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                            {
+                                return;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                            {
+                                SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                                SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            }
+                            if(i==0)
+                            {
+                                MessageListAdd(3,SignalID,36);
+                            }
+                        }
+                }
+
             }
-        }
+  }
+            }
+             }
     }
     else
     {
@@ -3056,6 +3424,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,31);
                     SignalsDataMap.find(SignalID).value().DSStatus=0x01;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                 }
@@ -3068,6 +3437,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,33);
                     SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                 }
@@ -3094,6 +3464,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                       SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
                       SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                 }
+                MessageListAdd(3,SignalID,35);
             }
             if(Status==0x04)
             {
@@ -3103,6 +3474,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,32);
                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
                 }
             }
@@ -3114,6 +3486,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,34);
                     SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                 }
             }
@@ -3136,6 +3509,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                      SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                       SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                 }
+                MessageListAdd(3,SignalID,36);
             }
         }
         if(SignalsDataMap.find(SignalID).value().signalType==0x02)//出站信号机
@@ -3148,6 +3522,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,31);
                     SignalsDataMap.find(SignalID).value().DSStatus=0x01;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                 }
@@ -3160,6 +3535,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,33);
                     SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                 }
@@ -3186,6 +3562,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                       SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
                       SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                 }
+                MessageListAdd(3,SignalID,35);
             }
             if(Status==0x04)
             {
@@ -3195,6 +3572,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,32);
                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
                 }
             }
@@ -3206,6 +3584,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,34);
                     SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                 }
             }
@@ -3228,6 +3607,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                      SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                       SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                 }
+                MessageListAdd(3,SignalID,36);
             }
         }
         if(SignalsDataMap.find(SignalID).value().signalType==0x03)//调车信号机
@@ -3240,6 +3620,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,31);
                     SignalsDataMap.find(SignalID).value().DSStatus=0x01;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                 }
@@ -3252,6 +3633,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,33);
                     SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                 }
@@ -3278,6 +3660,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                       SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
                       SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                 }
+                MessageListAdd(3,SignalID,35);
             }
             if(Status==0x04)
             {
@@ -3287,6 +3670,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,32);
                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
                 }
             }
@@ -3298,6 +3682,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 }
                 else
                 {
+                    MessageListAdd(3,SignalID,34);
                     SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                 }
             }
@@ -3320,13 +3705,14 @@ void InterLock::DSDS(byte SignalID, byte Status)
                      SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                       SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                 }
+                MessageListAdd(3,SignalID,36);
             }
         }
     }
 
 }
 
-//【09操作·灯丝复原】（待测试）
+//【09操作·灯丝复原】（待测试）√
 void InterLock::DSFY(byte Status)
 {
     int SignalID;
@@ -3339,59 +3725,77 @@ void InterLock::DSFY(byte Status)
         SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
         SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
         SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+
         QString BeginSignalName;
-        QString selectsignalname = QString("select *from signalinfo WHERE signalinfo.SiganlName=%1").arg(SignalID);
+        QString selectsignalname = QString("select *from signalinfo WHERE signalinfo.SignalID=%1").arg(SignalID);
         QSqlQuery sqlName(selectsignalname);
         while(sqlName.next())
         {
             BeginSignalName=sqlName.value(3).toString();
-        }
-        if(RuleMap.keys().contains(BeginSignalName))
-        {
-            for (int i=0;i<RuleMap[BeginSignalName].length();i++)
+            if(RuleMap.keys().contains(BeginSignalName))
             {
-                QString type =RuleMap[BeginSignalName][0];//进路类型
-                if(type=='1')
+                for (int i=0;i<RuleMap[BeginSignalName].length();i++)
                 {
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                }
-                else if(type=='2')
-                {
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                }
-                else if(type=='3')
-                {
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                }
-                else if(type=='4')
-                {
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                }
-                else if(type=='5')
-                {
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                    QString type =RuleMap[BeginSignalName][0];//进路类型
+                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                    {
+                        if(type=='1')
+                        {
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+                        }
+                        else if(type=='2')
+                        {
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                        }
+                        else if(type=='3')
+                        {
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        else if(type=='4')
+                        {
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                        }
+                        else if(type=='5')
+                        {
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                        }
+                        MessageListAdd(3,SignalID,39);
+                    }
+
                 }
             }
+            else
+            {
+
+                    if(SignalsDataMap.find(SignalID).value().signalType==0x03)
+                    {
+                        SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                    }
+                    else
+                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                    MessageListAdd(3,SignalID,39);
+
+            }
         }
-        else
-        {
-            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-        }
+
     }
 
 }
 
-//【10操作·区段占用】
+//【10操作·区段占用】 √
 void InterLock::ZhanYong(byte sectionID)//nameid
 {
     QString SectionName;
     QString id = QString::number(sectionID, 10);
     if(SectionsDataMap.find(id).value().sectionStatus==0x01)
     {
+        MessageListAdd(1,sectionID,1);
         SectionsDataMap.find(id).value().sectionStatus=0x02;
     }
-    else SectionsDataMap.find(id).value().sectionStatus=0x01;
-
+    else{
+        MessageListAdd(1,sectionID,7);
+        SectionsDataMap.find(id).value().sectionStatus=0x01;
+    }
     QList<int> forswithc;
     QString selectSeName =QString("select *from section WHERE section.sectionnameid=%1").arg(id);
     QSqlQuery sqlName(selectSeName);
@@ -3441,19 +3845,37 @@ void InterLock::ZhanYong(byte sectionID)//nameid
     }
 }
 
-//【11操作道岔失表】
-void InterLock::SwitchLoss(byte SwitchName){
+//【11操作道岔失表】 √
+void InterLock::SwitchLoss(byte SwitchName)//nameid
+{
     int switchid;
+    int SwitchNameid;
     QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
-        switchid = sqlSwitchID.value(0).toInt();
-        SwitchDataMap.find(switchid).value().SwitchLoss = 0x01;
+        SwitchNameid = sqlSwitchID.value(5).toInt();
     }
+    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);
+    QSqlQuery sqlSwitchid(selectSwitchid);
+    while(sqlSwitchid.next())
+    {
+        switchid = sqlSwitchid.value(0).toInt();
+        SwitchDataMap.find(switchid).value().SwitchLoss=0x01;
+        MessageListAdd(2,switchid,133);
+        if(0x00 ==SwitchDataMap.find(switchid).value().switchPos)//如果是定位就启用
+        {
+            SwitchDataMap.find(switchid).value().switchStates = 0x01;
+        }
+        else if(0x01 == SwitchDataMap.find(switchid).value().switchPos)//如果是反位就不启用
+        {
+            SwitchDataMap.find(switchid).value().switchStates = 0x00;
+        }
+    }
+
 }
 
-//【12操作·道岔取消失表】
+//【12操作·道岔取消失表】 √
 void InterLock::SwitchNoLoss(byte SwitchName){
     int switchid;
     QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
@@ -3559,31 +3981,45 @@ void InterLock::UnlockState(byte beginSignalID)
     }
 }
 
-//【14操作·红白光带故障】
-void InterLock::HBGZ(byte sectionnameid, byte status){
+//【14操作·红白光带故障】  √
+void InterLock::HBGZ(byte sectionnameid, byte status)
+{
     QString sectionName;
+    int sectionmenameid;
     int sectionforswitch;
+    QString sectionid;
+    QString sectionendid;
+    int signalid;
     QString id =QString::number(sectionnameid,10);
-    if(status==0x01)
+    QString selectmename = QString("select *from section WHERE section.sectionnameid=%1").arg(sectionnameid);
+    QSqlQuery sqlmename(selectmename);
+    while(sqlmename.next())
     {
-        if(SectionsDataMap.find(id).value().SectionRedObstacle=0x01)
+        sectionmenameid = sqlmename.value(3).toInt();
+    }
+    if(status==0x01)//红光带故障
+    {
+        if(SectionsDataMap.find(id).value().SectionRedObstacle==0x01)
         {
-            MessageList.append(1);
-            MessageList.append(sectionnameid);
-            MessageList.append(3);
+            return;
+        }
+        else
+        {
+            MessageListAdd(1,sectionmenameid,3);
             SectionsDataMap.find(id).value().SectionRedObstacle=0x01;
         }
     }
-    if(status==0x02)
+    else if(status==0x02)//白光带故障
     {
-        if(SectionsDataMap.find(id).value().SectionWhiteObstacle=0x01)
-        {
-            MessageList.append(1);
-            MessageList.append(sectionnameid);
-            MessageList.append(4);
-            SectionsDataMap.find(id).value().SectionWhiteObstacle=0x01;
-        }
-
+            if(SectionsDataMap.find(id).value().SectionWhiteObstacle==0x01)
+            {
+                return;
+            }
+            else
+            {
+                MessageListAdd(1,sectionmenameid,4);
+                SectionsDataMap.find(id).value().SectionWhiteObstacle=0x01;
+            }
     }
     else if(status==0x03)
     {
@@ -3593,9 +4029,7 @@ void InterLock::HBGZ(byte sectionnameid, byte status){
         }
         else
         {
-            MessageList.append(1);
-            MessageList.append(sectionnameid);
-            MessageList.append(8);
+            MessageListAdd(1,sectionmenameid,8);
             SectionsDataMap.find(id).value().SectionRedObstacle=0x02;
             SectionsDataMap.find(id).value().SectionWhiteObstacle=0x02;
         }
@@ -3632,7 +4066,51 @@ void InterLock::HBGZ(byte sectionnameid, byte status){
             }
         }
     }
+    QMap<QString,QList<QString>>::iterator ruledata;
+    for(ruledata = RuleMap.begin();ruledata !=RuleMap.end();++ruledata)
+    {
+        if(ruledata.value()[1].contains(sectionName))
+        {
+            QString signalname =ruledata.value()[3];
+            QString sectionNameList = ruledata.value()[1];
+            QStringList sectionName = sectionNameList.split(",");
+            QString sectionend = sectionName[sectionName.length()-1];
+            QString selectsectionendid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionend);
+            QSqlQuery sqlsectionendid(selectsectionendid);
+            while(sqlsectionendid.next())
+            {
+                sectionendid=sqlsectionendid.value(0).toString();
+            }
+            for(int as=0;as<sectionName.length();as++)
+            {
+                QString selectsectionid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionName[as]);
+                QSqlQuery sqlsectionid(selectsectionid);
+                while(sqlsectionid.next())
+                {
+                    sectionid = sqlsectionid.value(0).toString();
+                    QString selectsignalid =QString("select * from signalinfo WHERE SingalName = \"%1\"").arg(signalname);
+                    QSqlQuery sqlsignalid(selectsignalid);
+                    while(sqlsignalid.next())
+                    {
+                        signalid =sqlsignalid.value(0).toInt();
+                    }
+                    if(SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01)
+                    {
+                        SignalsDataMap.find(signalid).value().signalStatus=0x01;
+                        SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
+                        MessageListAdd(3,signalid,30);
+                        return;
+                    }
+                    if(sectionendid==sectionid)
+                    {
+                        SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
+                    }
 
+                }
+            }
+
+        }
+    }
 }
 
 //【01辅助·非阻塞延迟方法·模拟行车模块用】
