@@ -119,7 +119,10 @@ public:
     int SelectCountForName(QString Name);
     QList<int> SelectSwitchIdForName(QString Name);
     void SwitchWhite(int count,QString SectionName,QByteArray SwitchNameAndStatus,byte data);
-
+    void UpdateSwitchOccupy(int switchid,byte data);//【08辅助·修改道岔的占用】
+    void UpdateSwitchLock(int switchid,byte data);//【09辅助·修改道岔的锁闭】
+    void UpdateSectionStatus(QString sectionid,byte data);//【10辅助·修改区段的占用】
+    void UpdateSectionLock(QString sectionid,byte data);//【11辅助·修改区段的锁闭】
 
     //功能方法
     void ShangDian();//上电解锁

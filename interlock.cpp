@@ -3486,63 +3486,44 @@ void InterLock::UnlockState(byte beginSignalID)
        QStringList sectionlist = Sections.split(",");
        for(int i=0;i<2*sectionlist.length()-1;i++){
            int n=(i+1)/2;           //修改道岔的占用和锁闭
-           QString SectionIdSql = QString("SELECT * FROM sectioninfo WHERE SectionName = \"%1\"").arg(sectionlist[n]);
-           QSqlQuery querySectionId(SectionIdSql);
-           while(querySectionId.next())//占用区段地分轨数量
-           {
-               SectionId = querySectionId.value(0).toString();
-           }
+           SectionId = SelectIdForName(sectionlist[n]);
            if(n-1>=0)
            {
-               QString SectionIdSqlB = QString("SELECT * FROM sectioninfo WHERE SectionName = \"%1\"").arg(sectionlist[n-1]);
-               QSqlQuery querySectionIdB(SectionIdSqlB);
-               while(querySectionIdB.next())//占用区段地分轨数量
-               {
-                   SectionIdB = querySectionIdB.value(0).toString();
-               }
+               SectionIdB = SelectIdForName(sectionlist[n-1]);
            }
-           int NameCount = 0;
-           QString NameCountSql = QString("SELECT COUNT(*) FROM section WHERE SectionName = \"%1\"").arg(sectionlist[n]);
-           QSqlQuery queryNameCount(NameCountSql);
-           while(queryNameCount.next())//占用区段地分轨数量
-           {
-               NameCount = queryNameCount.value(0).toInt();
-               int nn = 1;
-           }
+           int NameCount = SelectCountForName(sectionlist[n]);
            int NameCountB = 0;
            if(n-1>=0){
-               QString NameCountSqlB = QString("SELECT COUNT(*) FROM section WHERE SectionName = \"%1\"").arg(sectionlist[n-1]);
-               QSqlQuery queryNameCountB(NameCountSqlB);
-               while(queryNameCountB.next())//占用区段地分轨数量
-               {
-                   NameCountB = queryNameCountB.value(0).toInt();
-               }
+               NameCountB = SelectCountForName(sectionlist[n-1]);
            }
            //修改区段的占用和锁闭
            if(i == 0)
            {
-               SectionsDataMap.find(SectionId).value().sectionStatus = 0x01;
+               UpdateSectionStatus(SectionId,0x01);
                if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
                    switchid = SwitchIds[SwitchIndex];
-                   SwitchDataMap.find(switchid.toInt()).value().switchOccupy = 0x01;//道岔被占用；
-                   if((i + 1) % 2 == i % 2){
-                       SwitchIndex++;
-                   }
+                   UpdateSwitchOccupy(switchid.toInt(),0x01);
                }
            }
            else
            {
-               SectionsDataMap.find(SectionId).value().sectionStatus = 0x01;
+               UpdateSectionStatus(SectionId,0x01);
+               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                   switchid = SwitchIds[SwitchIndex];
+                   UpdateSwitchOccupy(switchid.toInt(),0x01);
+               }
                if(i % 2 == 0)
                {
-                   SectionsDataMap.find(SectionIdB).value().sectionStatus = 0x02;//经过后解除占用
-                   SectionsDataMap.find(SectionIdB).value().LockStatus = 0x02;//经过后解除锁闭
+                   UpdateSectionStatus(SectionIdB,0x02);
+                   UpdateSectionLock(SectionIdB,0x02);
                    if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
                        switchid = SwitchIds[SwitchIndex];
-                       switchidB = SwitchIds[SwitchIndex+1];
-                       SwitchDataMap.find(switchid.toInt()).value().switchOccupy = 0x02;//道岔解除占用；
-                       SwitchDataMap.find(switchid.toInt()).value().switchLock = 0x02;//道岔解除锁闭；
-                       SwitchDataMap.find(switchidB.toInt()).value().switchLock = 0x02;//联动道岔解除锁闭；
+                       UpdateSwitchOccupy(switchid.toInt(),0x02);//道岔解除占用；
+                       UpdateSwitchLock(switchid.toInt(),0x02);//道岔解除锁闭；
+                       if((SwitchIndex+1) < SwitchIds.length()){
+                           switchidB = SwitchIds[SwitchIndex+1];
+                           UpdateSwitchLock(switchidB.toInt(),0x02);//联动道岔解除锁闭；
+                       }
                        if(OneSwitch.contains(switchid)){//如果是非带动道岔，自增一
                            SwitchIndex++;
                        }else{//如果是带动道岔，自增二
@@ -3552,15 +3533,23 @@ void InterLock::UnlockState(byte beginSignalID)
                }
                if(i % 2 != 0)
                {
-                   SectionsDataMap.find(SectionIdB).value().sectionStatus = 0x01;
+                   UpdateSectionStatus(SectionIdB,0x01);
                    if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
-                       switchid = SwitchIds[SwitchIndex];
-                       SwitchDataMap.find(switchid.toInt()).value().switchOccupy = 0x01;//道岔被占用；
+                       if(OneSwitch.contains(switchid) && (SwitchIndex+1) < SwitchIds.length()){//如果是非带动道岔，自增一
+                           switchidB = SwitchIds[SwitchIndex+1];
+                       }else if((SwitchIndex+2) < SwitchIds.length()){//如果是带动道岔，自增二
+                           switchidB = SwitchIds[SwitchIndex+2];
+                       }else{
+                           switchidB = "";
+                       }
+                       if(switchidB != ""){
+                           UpdateSwitchOccupy(switchidB.toInt(),0x01);//道岔被占用；
+                       }
                    }
                }
            }
            if(i == 2*sectionlist.length()-2){
-              SectionsDataMap.find(SectionId).value().LockStatus = 0x02;
+                UpdateSectionLock(SectionId,0x02);
            }
            //延迟一秒
            sleep(1000);
@@ -3795,6 +3784,54 @@ void InterLock::SwitchWhite(int count,QString SectionName,QByteArray SwitchNameA
            //SwitchDataMap.find(switchlist[2]).value().switchLock = data;//则所经过联动道岔取消道岔锁闭
            //SwitchDataMap.find(switchlist[3]).value().switchLock = data;//则所经过联动道岔取消道岔锁闭
        }
+    }
+}
+
+//【08辅助·修改道岔的占用】
+void InterLock::UpdateSwitchOccupy(int switchid,byte data){
+    if(SwitchDataMap.find(switchid).value().switchOccupy != data){
+        SwitchDataMap.find(switchid).value().switchOccupy = data;//道岔被占用；
+        if(data == 0x01){
+           MessageListAdd(2,switchid,69);
+        }else if(data == 0x02){
+           MessageListAdd(2,switchid,70);
+        }
+    }
+}
+
+//【09辅助·修改道岔的锁闭】
+void InterLock::UpdateSwitchLock(int switchid,byte data){
+    if(SwitchDataMap.find(switchid).value().switchLock != data){
+        SwitchDataMap.find(switchid).value().switchLock = data;//道岔被锁闭；
+        if(data == 0x01){
+           MessageListAdd(2,switchid,68);
+        }else if(data == 0x02){
+           MessageListAdd(2,switchid,71);
+        }
+    }
+}
+
+//【10辅助·修改区段的占用】
+void InterLock::UpdateSectionStatus(QString sectionid,byte data){
+    if(SectionsDataMap.find(sectionid).value().sectionStatus != data){
+        SectionsDataMap.find(sectionid).value().sectionStatus = data;
+        if(data == 0x01){
+            MessageListAdd(1,sectionid.toInt(),1);
+        }else if(data == 0x02){
+            MessageListAdd(1,sectionid.toInt(),7);
+        }
+    }
+}
+
+//【11辅助·修改区段的锁闭】
+void InterLock::UpdateSectionLock(QString sectionid,byte data){
+    if(SectionsDataMap.find(sectionid).value().LockStatus != data){
+        SectionsDataMap.find(sectionid).value().LockStatus = data;
+        if(data == 0x01){
+            MessageListAdd(1,sectionid.toInt(),6);
+        }else if(data == 0x02){
+            MessageListAdd(1,sectionid.toInt(),9);
+        }
     }
 }
 
