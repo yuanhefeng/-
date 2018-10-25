@@ -1374,6 +1374,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
         {
             QString type = RuleMap[beginSignalName][0];
             qDebug()<<type;
+            UpdateSignalStatus(type,Status);
             if(type == '1')//正线进站进路
             {
                 if(Status==0x01)
@@ -3831,6 +3832,16 @@ void InterLock::UpdateSectionLock(QString sectionid,byte data){
             MessageListAdd(1,sectionid.toInt(),6);
         }else if(data == 0x02){
             MessageListAdd(1,sectionid.toInt(),9);
+        }
+    }
+}
+
+//【辅助·根据灯丝断丝修改信号机状态】
+void InterLock::UpdateSignalStatus(QString type,byte Status){
+    if(type == 1){
+        if(Status == Status)//红蓝主灯丝断
+        {
+
         }
     }
 }

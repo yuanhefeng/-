@@ -123,6 +123,7 @@ public:
     void UpdateSwitchLock(int switchid,byte data);//【09辅助·修改道岔的锁闭】
     void UpdateSectionStatus(QString sectionid,byte data);//【10辅助·修改区段的占用】
     void UpdateSectionLock(QString sectionid,byte data);//【11辅助·修改区段的锁闭】
+    void UpdateSignalStatus(QString type,byte Status);//【辅助·根据灯丝断丝修改信号机状态】
 
     //功能方法
     void ShangDian();//上电解锁
