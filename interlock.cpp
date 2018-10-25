@@ -1,5 +1,7 @@
 #include "interlock.h"
 #include "ui_interlock.h"
+#include "QTime"
+#include "QApplication"
 
 int InterLock::Chance = 0;
 int InterLock::First = 0;
@@ -73,7 +75,6 @@ InterLock::~InterLock()
     delete ui;
 }
 
-//接收信号,假如修改点东西
 int i=0;
 void InterLock::readPendingDatagrams()
 {
@@ -159,8 +160,8 @@ void InterLock::readPendingDatagrams()
 
                 if(0x64 == buf[7])//分路不良
                 {
-                    qDebug() <<"FenLu:"<<buf.toInt();
-                    FenLu(buf[12]);
+                    //qDebug() <<"FenLu:"<<buf.toInt();
+                    //FenLu(buf[12]);
                 }
                 if(0x63 == buf[7])//区解锁
                 {
@@ -174,13 +175,13 @@ void InterLock::readPendingDatagrams()
                 }*/
                 if(0x24 == buf[7])//故障设置
                 {
-                    qDebug() <<"GuZhang:"<< buf.toInt();
-                    GuZhang(buf[12],buf[17]);
+                    //qDebug() <<"GuZhang:"<< buf.toInt();
+                    //GuZhang(buf[12],buf[17]);
                 }
                 if(0x35 == buf[7])//闭塞操作
                 {
-                    qDebug() <<"BiSe:"<<buf.toInt();
-                    BiSe(buf[12]);
+                    //qDebug() <<"BiSe:"<<buf.toInt();
+                    //BiSe(buf[12]);
                 }
                 if(0x26==buf[7])//灯丝断丝
                 {
@@ -191,10 +192,15 @@ void InterLock::readPendingDatagrams()
                     qDebug() <<"ZhanYong:"<<buf.toInt();
                     ZhanYong(buf[12]);
                 }
-                if(0x40 == buf[7])//模拟行车
+                if(0x40 == buf[7])//模拟行车————————————————————————√
                 {
                     qDebug() <<"UnlockState:"<<buf.toInt();
-                    UnlockState(buf[12],buf[17]);
+                    UnlockState(buf[12]);
+                }
+                if(0x23==buf[7])//红白光带故障————————————————————————√
+                {
+                    qDebug()<<"HBGZ"<<buf.toInt();
+                    HBGZ(buf[12],buf[17]);
                 }
                 /*if( == buf[]) //信号机
                 {
@@ -212,6 +218,21 @@ void InterLock::readPendingDatagrams()
     }
 }
 
+//【00操作·上电解锁】
+void InterLock::ShangDian()
+{
+    SwitchData switchData;
+    QMap<int,SwitchData>::iterator itSwitch;
+    QSqlQuery selectswitch("select * from switch");
+    while(selectswitch.next())
+    {
+        for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
+        {
+            switchData.switchLock = 0x02;//上电后解锁，状态为空闲
+        }
+    }
+}
+
 //【01操作·进路设置+引导进路】
 void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
 {
@@ -224,6 +245,7 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
     QString sql;//sql语句
     QString Type;//进路类型：侧线/正线/通路/调车
     QList<QString> RuleList;//需要向所有进路集合增加的本次进路（包括起点信号机、经过地所有区段、道岔、进路类型）
+    QList<int> OneSwitch = {21,27,29,14,22,16};
 
     //起点信号机ID取得起点信号机名字
     QString selectbeginsignalid = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
@@ -271,30 +293,22 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 //----------------【判断条件7】道岔被锁闭，且定反位与进路需求不一致----------------
                 //如果进路要求道岔定位，但是道岔是反位，且道岔被锁闭，则进路无效
                 if((num[k+1]+0) == 0 && SwitchDataMap.find(switchid).value().switchPos == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
-                    MessageList.append(2);
-                    MessageList.append(switchid);
-                    MessageList.append(130);
+                    MessageListAdd(2,switchid,130);
                     return;
                 }
                 //如果进路要求道岔反位，但是道岔是定位，且道岔被锁闭，则进路无效
                 if((num[k+1]+0) == 2 && SwitchDataMap.find(switchid).value().switchPos == 0x00 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
-                    MessageList.append(2);
-                    MessageList.append(switchid);
-                    MessageList.append(130);
+                    MessageListAdd(2,switchid,130);
                     return;
                 }
                 //----------------【判断条件8】道岔失表----------------：
                 if(SwitchDataMap.find(switchid).value().SwitchLoss == 0x01){
-                    MessageList.append(2);
-                    MessageList.append(switchid);
-                    MessageList.append(131);
+                    MessageListAdd(2,switchid,131);
                     return;
                 }
                 //----------------【判断条件9】道岔封锁----------------：
                 if(SwitchDataMap.find(switchid).value().blockStatus == 0x01){
-                    MessageList.append(2);
-                    MessageList.append(switchid);
-                    MessageList.append(132);
+                    MessageListAdd(2,switchid,132);
                     return;
                 }
             }
@@ -313,44 +327,32 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 sectionid = querysection.value(0).toString();
                 //----------------【判断条件1】区段锁闭----------------
                 if(SectionsDataMap.find(sectionid).value().LockStatus == 0x01){
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(101);
+                    MessageListAdd(1,sectionid.toInt(),101);
                     return;
                 }
                 //----------------【判断条件2】区段封锁----------------：
                 if(SectionsDataMap.find(sectionid).value().blockStatus == 0x01){
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(102);
+                    MessageListAdd(1,sectionid.toInt(),102);
                     return;
                 }
                 //----------------【判断条件3】区段分路不良----------------：
                 if(SectionsDataMap.find(sectionid).value().PoorStatus == 0x01){
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(103);
+                    MessageListAdd(1,sectionid.toInt(),103);
                     return;
                 }
                 //----------------【判断条件4】区段占用----------------：
                 if(SectionsDataMap.find(sectionid).value().sectionStatus == 0x01){
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(104);
+                    MessageListAdd(1,sectionid.toInt(),104);
                     return;
                 }
                 //----------------【判断条件5】区段白光带故障----------------：
                 if(SectionsDataMap.find(sectionid).value().SectionWhiteObstacle == 0x01){
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(105);
+                    MessageListAdd(1,sectionid.toInt(),105);
                     return;
                 }
                 //----------------【判断条件6】区段红光带故障----------------：
                 if(SectionsDataMap.find(sectionid).value().SectionRedObstacle == 0x01){
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(106);
+                    MessageListAdd(1,sectionid.toInt(),106);
                     return;
                 }
             }
@@ -374,53 +376,76 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         }
 
         //拆分道岔名字和定反位
+        //声明一个锁闭道岔的ID拼接地字符串（模拟行车功能用）
+        QString LockSwitchs;
         QByteArray num = switchesStrextract(SwitchNames);
         int switchname;
+        int switchnametest;
+        int switchidTest;
+        int four = 2;
         for(int k=0;k<num.count();k+=2){
             switchname = num[k];//进路的区段名字
+            switchnametest = num[k+2];
             int switchid;//对应的区段ID
             QString selectswitch = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(switchname);
             QSqlQuery queryswitch(selectswitch);
             while(queryswitch.next())
             {
                 switchid = queryswitch.value(0).toInt();
+                QString switchidString = QString::number(switchid, 10);//【模拟行车用】拼接地锁闭道岔地ID
                 if(SwitchDataMap.find(switchid).value().switchPos == (num[k+1]+0)){//如果要求该道岔是定位
                     if(SwitchDataMap.find(switchid).value().switchStates != 0x01){
                         SwitchDataMap.find(switchid).value().switchStates = 0x01;//启用该道岔的（定/反）
+                        LockSwitchs += switchidString + ",";
                         SwitchDataMap.find(switchid - 1).value().switchStates = 0x00;//关闭该道岔的（反/定）
-                        MessageList.append(2);
-                        MessageList.append(switchid);
-                        MessageList.append(61);
+                        MessageListAdd(2,switchid,61);
                     }
                     if(type == 1){//对象正常锁闭
-                        SwitchDataMap.find(switchid).value().switchLock = 0x01;
-                        MessageList.append(2);
-                        MessageList.append(switchid);
-                        MessageList.append(62);
+//                        if(four %4 == 1 || four %4 == 3){
+//                            QString selectswitchTest = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(switchnametest);
+//                            QSqlQuery queryswitchTest(selectswitchTest);
+//                            while(queryswitchTest.next())
+//                            {
+//                                switchidTest = queryswitchTest.value(0).toInt();
+//                                SwitchDataMap.find(switchidTest).value().switchLock = 0x01;//隐形锁闭
+//                            }
+//                        }else{
+                            SwitchDataMap.find(switchid).value().switchLock = 0x01;
+                        //}
+                        //if(!OneSwitch.contains(switchname)) four++;
+                        LockSwitchs += switchidString + ",";
+                        MessageListAdd(2,switchid,62);
                     }else if(type == 2){//对象引导锁闭
                         SwitchDataMap.find(switchid).value().switchLock = 0x03;
-                        MessageList.append(2);
-                        MessageList.append(switchid);
-                        MessageList.append(62);
+                        LockSwitchs += switchidString + ",";
+                        MessageListAdd(2,switchid,62);
                     }
                 }else if(SwitchDataMap.find(switchid).value().switchPos == (num[k+1]-2)){//如果要求该道岔是反位
                     if(SwitchDataMap.find(switchid).value().switchStates != 0x01){
                         SwitchDataMap.find(switchid).value().switchStates = 0x01;//启用该道岔的（定/反）
+                        LockSwitchs += switchidString + ",";
                         SwitchDataMap.find(switchid + 1).value().switchStates = 0x00;//关闭该道岔的（反/定）
-                        MessageList.append(2);
-                        MessageList.append(switchid);
-                        MessageList.append(60);
+                        MessageListAdd(2,switchid,60);
                     }
                     if(type == 1){//对象正常锁闭
+//                        if(four %4 == 1 || four %4 == 3){
+//                            QString selectswitchTest = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(switchnametest);
+//                            QSqlQuery queryswitchTest(selectswitchTest);
+//                            while(queryswitchTest.next())
+//                            {
+//                                switchidTest = queryswitchTest.value(0).toInt();
+//                                SwitchDataMap.find(switchidTest).value().switchLock = 0x01;//隐形锁闭
+//                            }
+//                        }else{
                         SwitchDataMap.find(switchid).value().switchLock = 0x01;
-                        MessageList.append(2);
-                        MessageList.append(switchid);
-                        MessageList.append(62);
+                        //}
+                        //if(!OneSwitch.contains(switchname)) four++;
+                        LockSwitchs += switchidString + ",";
+                        MessageListAdd(2,switchid,62);
                     }else if(type == 2){//对象引导锁闭
                         SwitchDataMap.find(switchid).value().switchLock = 0x03;
-                        MessageList.append(2);
-                        MessageList.append(switchid);
-                        MessageList.append(62);
+                        LockSwitchs += switchidString + ",";
+                        MessageListAdd(2,switchid,62);
                     }
                 }
             }
@@ -437,14 +462,10 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 sectionid = querysection.value(0).toString();
                 if(type == 1){
                     SectionsDataMap.find(sectionid).value().LockStatus = 0x01;   //对象正常锁闭
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(6);
+                    MessageListAdd(1,sectionid.toInt(),6);
                 }else if(type == 2){
                     SectionsDataMap.find(sectionid).value().LockStatus = 0x03;   //对象引导锁闭
-                    MessageList.append(1);
-                    MessageList.append(sectionid.toInt());
-                    MessageList.append(6);
+                    MessageListAdd(1,sectionid.toInt(),6);
                 }
             }
         }
@@ -810,6 +831,8 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         RuleList.append(Type);
         RuleList.append(SectionNames);
         RuleList.append(SwitchNames);
+        LockSwitchs.chop(1);
+        RuleList.append(LockSwitchs);
         RuleMap[beginSignalName] = RuleList;
     }
 }
@@ -1065,8 +1088,15 @@ void InterLock::FengSuo(byte Id,byte Type)
 //【05操作·区故解】
 void InterLock::QuGJ(byte Snum)
 {
-    QString sectionname;
-
+    QString sectionname;//声明①——需要区故解区段名字
+    QString SectionId;//声明②——区故解区段ID
+    QString SectionIdAdd;//声明③——区故解下一个区段ID
+    QString SectionIdReduce;//声明④——区故解上一个区段ID
+    int i;//声明⑥——区故解区段在进路锁闭区段中地检索号。
+    int SectionIdCount;//声明⑨——区故解区段分轨数量
+    int SectionIdAddCount;//声明⑩——区故解下一个区段分轨数量
+    int SectionIdReduceCount;//声明十一——区故解上一个区段分轨数量
+    QString SwitchName;
     //根据区段的nameid查找到区段名字
     QString selectsid = QString("select * from section WHERE section.sectionnameid = %1").arg(Snum);
     QSqlQuery queryid(selectsid);
@@ -1075,79 +1105,108 @@ void InterLock::QuGJ(byte Snum)
         sectionname = queryid.value(1).toString();
     }
 
+    //循环所有进路
     QMap<QString,QList<QString>> ::iterator it;
-    int i = 0;
     for(it = RuleMap.begin();it != RuleMap.end();++it)
     {
         //如果该条进路的区段字符串拼接中包含需要区故解的区段
         if(it.value()[1].contains(sectionname)){
-            QStringList NameList = it.value()[1].split(",");
-            int len = NameList.length();
-            for(int i=0; i<len; i++)
+            QByteArray SwitchNameAndStatus = switchesStrextract(it.value()[2]);//声明⑦——需要区故解地进路中地所有道岔名字+定反位
+            QStringList NameList = it.value()[1].split(",");//声明⑧——需要区故解地进路中地所有区段名字
+            i = NameList.indexOf(sectionname);//区故解区段在进路锁闭区段中地检索号。
+            int len = NameList.length();//进路锁闭区段地数量。
+            SectionId = SelectIdForName(NameList[i]);
+            SectionIdCount = SelectCountForName(NameList[i]);
+            if(i<=NameList.length()-2){//如果区故解地不是最后一个区段
+                SectionIdAdd = SelectIdForName(NameList[i+1]);
+                SectionIdAddCount = SelectCountForName(NameList[i+1]);
+            }
+            if(i>0){//如果区故解地不是第一个区段
+                SectionIdReduce = SelectIdForName(NameList[i-1]);
+                SectionIdReduceCount = SelectCountForName(NameList[i-1]);
+            }
+            QMap<QString,SectionData>::iterator itsec = SectionsDataMap.find(SectionId);
+            //如果进路中发现该区段白光带故障,或锁闭状态
+            if(itsec.value().SectionWhiteObstacle == 0x01 || itsec.value().LockStatus == 0x01)
             {
-                QMap<QString,SectionData>::iterator itsec = SectionsDataMap.find(NameList[i]);
-                //如果进路中发现该区段白光带故障,或锁闭状态
-                if(itsec.value().SectionWhiteObstacle == 0x01 || itsec.value().LockStatus == 0x01)
+                SwitchWhite(SectionIdCount,sectionname,SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                SectionsDataMap.find(SectionId).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
+                SectionsDataMap.find(SectionId).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                //第一个区段故障
+                if(i == 0)
                 {
-                    SectionsDataMap.find(NameList[i]).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                    SectionsDataMap.find(NameList[i]).value().LockStatus = 0x02;//取消该区段的锁闭状态
-                    //第一个区段故障
-                    if(i == 0)
-                    {
-                        SectionsDataMap.find(NameList[i+1]).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                    if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                        SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                     }
-                    //第二个区段故障
-                    if(i == 1){
-                        SectionsDataMap.find(NameList[i+1]).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
-                        SectionsDataMap.find(NameList[i-1]).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                        SectionsDataMap.find(NameList[i-1]).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                }
+                //第二个区段故障
+                else if(i == 1){
+                    if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                        SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                     }
-                    //如果是最后一段区段故障
-                    else if(i == len-1)
+                    SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x02;//连带取消第一个区段地白光带故障
+                    SectionsDataMap.find(SectionIdReduce).value().LockStatus = 0x02;//连带取消第一个区段地锁闭状态
+                    SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                }
+                //如果是最后一段区段故障
+                else if(i == len-1)
+                {
+                    for(int j=i-1;j>=0;j--)
                     {
-                        for(int j=i-1;j>=0;j--)
-                        {
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(NameList[j]);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
-                            }else{
-                               itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                            }
+                        QString SectionIdJ = SelectIdForName(NameList[j]);
+                        QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                        if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                            continue;
+                        }else{
+                            itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                            int SectionIdCountJ = SelectCountForName(NameList[j]);
+                            SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                         }
                     }
-                    //如果是倒数第二段区段故障
-                    else if(i == len-2)
+                }
+                //如果是倒数第二段区段故障
+                else if(len>2 && i == len-2)
+                {
+                    for(int j=i-1;j>=0;j--)
                     {
-                        for(int j=i-1;j>=0;j++)
-                        {
-                            SectionsDataMap.find(NameList[i+1]).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                            SectionsDataMap.find(NameList[i+1]).value().LockStatus = 0x02;//取消该区段的锁闭状态
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(NameList[j]);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
-                            }else{
-                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                            }
+                        SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
+                        SectionsDataMap.find(SectionIdAdd).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                        QString SectionIdJ = SelectIdForName(NameList[j]);
+                        QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                        if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                            continue;
+                        }else{
+                            itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                            int SectionIdCountJ = SelectCountForName(NameList[j]);
+                            SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                         }
                     }
-                    //如果是进路中的中间区段
-                    else if(i>0 && i<len-1)
+                }
+                //如果是进路中的中间区段
+                else if(i>0 && i<len-1)
+                {
+                    if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                        SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                    }
+                    for(int j=i-1;j>=0;j--)
                     {
-                        SectionsDataMap.find(NameList[i+1]).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
-                        for(int j=i-1;j>=0;j--)
-                        {
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(NameList[j]);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
-                            }else{
-                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                            }
+                        QString SectionIdJ = SelectIdForName(NameList[j]);
+                        QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                        if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                            continue;
+                        }else{
+                            itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                            int SectionIdCountJ = SelectCountForName(NameList[j]);
+                            SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                         }
                     }
                 }
             }
         }
-        i++;
     }
 }
 
@@ -3405,9 +3464,195 @@ void InterLock::SwitchNoLoss(byte SwitchName){
     }
 }
 
+//【13操作·模拟行车】
+void InterLock::UnlockState(byte beginSignalID)
+{
+    QStringList OneSwitch = {"1","10","15","16","2","23","24","27","28","51","52","9"};
+    QString SectionId;
+    QString SectionIdB;
+    QString beginSignalName = QString();
+    QString selectBeginSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
+    QSqlQuery queryBeginSignal(selectBeginSignalStr);
+    while(queryBeginSignal.next())
+    {
+        beginSignalName = queryBeginSignal.value(3).toString();
+    }
+    if(RuleMap.find(beginSignalName).key() != NULL){
+       QString Sections = RuleMap.find(beginSignalName).value()[1];
+       QStringList SwitchIds = RuleMap.find(beginSignalName).value()[3].split(",");
+       int SwitchIndex = 0;
+       QString switchid;
+       QString switchidB;
+       QStringList sectionlist = Sections.split(",");
+       for(int i=0;i<2*sectionlist.length()-1;i++){
+           int n=(i+1)/2;           //修改道岔的占用和锁闭
+           QString SectionIdSql = QString("SELECT * FROM sectioninfo WHERE SectionName = \"%1\"").arg(sectionlist[n]);
+           QSqlQuery querySectionId(SectionIdSql);
+           while(querySectionId.next())//占用区段地分轨数量
+           {
+               SectionId = querySectionId.value(0).toString();
+           }
+           if(n-1>=0)
+           {
+               QString SectionIdSqlB = QString("SELECT * FROM sectioninfo WHERE SectionName = \"%1\"").arg(sectionlist[n-1]);
+               QSqlQuery querySectionIdB(SectionIdSqlB);
+               while(querySectionIdB.next())//占用区段地分轨数量
+               {
+                   SectionIdB = querySectionIdB.value(0).toString();
+               }
+           }
+           int NameCount = 0;
+           QString NameCountSql = QString("SELECT COUNT(*) FROM section WHERE SectionName = \"%1\"").arg(sectionlist[n]);
+           QSqlQuery queryNameCount(NameCountSql);
+           while(queryNameCount.next())//占用区段地分轨数量
+           {
+               NameCount = queryNameCount.value(0).toInt();
+               int nn = 1;
+           }
+           int NameCountB = 0;
+           if(n-1>=0){
+               QString NameCountSqlB = QString("SELECT COUNT(*) FROM section WHERE SectionName = \"%1\"").arg(sectionlist[n-1]);
+               QSqlQuery queryNameCountB(NameCountSqlB);
+               while(queryNameCountB.next())//占用区段地分轨数量
+               {
+                   NameCountB = queryNameCountB.value(0).toInt();
+               }
+           }
+           //修改区段的占用和锁闭
+           if(i == 0)
+           {
+               SectionsDataMap.find(SectionId).value().sectionStatus = 0x01;
+               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                   switchid = SwitchIds[SwitchIndex];
+                   SwitchDataMap.find(switchid.toInt()).value().switchOccupy = 0x01;//道岔被占用；
+                   if((i + 1) % 2 == i % 2){
+                       SwitchIndex++;
+                   }
+               }
+           }
+           else
+           {
+               SectionsDataMap.find(SectionId).value().sectionStatus = 0x01;
+               if(i % 2 == 0)
+               {
+                   SectionsDataMap.find(SectionIdB).value().sectionStatus = 0x02;//经过后解除占用
+                   SectionsDataMap.find(SectionIdB).value().LockStatus = 0x02;//经过后解除锁闭
+                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                       switchid = SwitchIds[SwitchIndex];
+                       switchidB = SwitchIds[SwitchIndex+1];
+                       SwitchDataMap.find(switchid.toInt()).value().switchOccupy = 0x02;//道岔解除占用；
+                       SwitchDataMap.find(switchid.toInt()).value().switchLock = 0x02;//道岔解除锁闭；
+                       SwitchDataMap.find(switchidB.toInt()).value().switchLock = 0x02;//联动道岔解除锁闭；
+                       if(OneSwitch.contains(switchid)){//如果是非带动道岔，自增一
+                           SwitchIndex++;
+                       }else{//如果是带动道岔，自增二
+                           SwitchIndex+=2;
+                       }
+                   }
+               }
+               if(i % 2 != 0)
+               {
+                   SectionsDataMap.find(SectionIdB).value().sectionStatus = 0x01;
+                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                       switchid = SwitchIds[SwitchIndex];
+                       SwitchDataMap.find(switchid.toInt()).value().switchOccupy = 0x01;//道岔被占用；
+                   }
+               }
+           }
+           if(i == 2*sectionlist.length()-2){
+              SectionsDataMap.find(SectionId).value().LockStatus = 0x02;
+           }
+           //延迟一秒
+           sleep(1000);
+        }
+        RuleDataMap.remove(beginSignalName);
+    }
+}
 
+//【14操作·红白光带故障】
+void InterLock::HBGZ(byte sectionnameid, byte status){
+    QString sectionName;
+    int sectionforswitch;
+    QString id =QString::number(sectionnameid,10);
+    if(status==0x01)
+    {
+        if(SectionsDataMap.find(id).value().SectionRedObstacle=0x01)
+        {
+            MessageList.append(1);
+            MessageList.append(sectionnameid);
+            MessageList.append(3);
+            SectionsDataMap.find(id).value().SectionRedObstacle=0x01;
+        }
+    }
+    if(status==0x02)
+    {
+        if(SectionsDataMap.find(id).value().SectionWhiteObstacle=0x01)
+        {
+            MessageList.append(1);
+            MessageList.append(sectionnameid);
+            MessageList.append(4);
+            SectionsDataMap.find(id).value().SectionWhiteObstacle=0x01;
+        }
 
-//道岔字符串信息提取
+    }
+    else if(status==0x03)
+    {
+        if(SectionsDataMap.find(id).value().SectionRedObstacle==0x02&&SectionsDataMap.find(id).value().SectionWhiteObstacle==0x02)
+        {
+            return;
+        }
+        else
+        {
+            MessageList.append(1);
+            MessageList.append(sectionnameid);
+            MessageList.append(8);
+            SectionsDataMap.find(id).value().SectionRedObstacle=0x02;
+            SectionsDataMap.find(id).value().SectionWhiteObstacle=0x02;
+        }
+
+    }
+    QList<int> seforsw;
+    QString selectsecName =QString("select *from section WHERE section.sectionnameid=%1").arg(id);
+    QSqlQuery sqlname(selectsecName);
+    while(sqlname.next())
+    {
+        sectionName=sqlname.value(1).toString();
+        sectionforswitch =sqlname.value(4).toInt();
+        if(sectionforswitch!=NULL)
+        {
+            seforsw.append(sectionforswitch);
+        }
+        for(int i=0;i<seforsw.length();i++)
+        {
+            if(SwitchDataMap.find(seforsw[i]).value().switchStates==0x01)//反位
+            {
+                if(status==0x01)
+                {
+                    SwitchDataMap.find(seforsw[i]).value().switchred=0x01;//红光带故障
+                }
+                if(status==0x02)
+                {
+                    SwitchDataMap.find(seforsw[i]).value().switchwhite=0x01;//白光带故障
+                }
+                if(status==0x03)
+                {
+                    SwitchDataMap.find(seforsw[i]).value().switchred=0x02;//红光带正常
+                    SwitchDataMap.find(seforsw[i]).value().switchwhite=0x02;//白光带正常
+                }
+            }
+        }
+    }
+
+}
+
+//【01辅助·非阻塞延迟方法·模拟行车模块用】
+void InterLock::sleep(unsigned int msec){
+    QTime dieTime = QTime::currentTime().addMSecs(msec);
+    while( QTime::currentTime() < dieTime )
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+}
+
+//【02辅助·道岔字符串信息提取·全局】
 QByteArray InterLock::switchesStrextract(QString switchesStr)
 {
     QByteArray switchesInfo;
@@ -3492,6 +3737,68 @@ QByteArray InterLock::switchesStrextract(QString switchesStr)
     return switchesInfo;
 }
 
+//【03辅助·根据名字查询区段ID】
+QString InterLock::SelectIdForName(QString Name){
+    QString SectionId;
+    QString SectionIdSql = QString("SELECT * FROM sectioninfo WHERE SectionName = \"%1\"").arg(Name);
+    QSqlQuery querySectionId(SectionIdSql);
+    while(querySectionId.next())//占用区段地分轨数量
+    {
+        SectionId = querySectionId.value(0).toString();
+    }
+    return SectionId;
+}
+
+//【04辅助·根据名字查询区段是否有分轨】
+int InterLock::SelectCountForName(QString Name){
+    QString SectionIdSql = QString("SELECT * FROM section WHERE SectionName = \"%1\"").arg(Name);
+    QSqlQuery querySectionId(SectionIdSql);
+    int count = querySectionId.size();
+    return count;
+}
+
+//【05辅助·信息提示框信息增加】
+void InterLock::MessageListAdd(int type,int id,int messageid){
+    MessageList.append(type);
+    MessageList.append(id);
+    MessageList.append(messageid);
+}
+
+//【06辅助·根据名字查询区段是否有分轨】
+QList<int> InterLock::SelectSwitchIdForName(QString Name){
+    int switchid;
+    QList<int> switchforname;
+    QString SectionIdSql = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(Name);
+    QSqlQuery querySectionId(SectionIdSql);
+    while(querySectionId.next())//占用区段地分轨数量
+    {
+        switchid = querySectionId.value(0).toInt();
+        switchforname.append(switchid);
+    }
+    return switchforname;
+}
+
+//【07辅助·根据区段名给所途径道岔赋值白光带故障】
+void InterLock::SwitchWhite(int count,QString SectionName,QByteArray SwitchNameAndStatus,byte data){
+    if(count>1){//如果区故解区段有分轨
+       QString SwitchName = SectionName.section("D",0,0);//通过截取获取道岔名字
+       int switchIndex = SwitchNameAndStatus.indexOf(SwitchName.toInt());//区故解道岔地检索号
+       QList<int> switchlist = SelectSwitchIdForName(SwitchName);//同道岔名的定反位ID
+       if(SwitchNameAndStatus[switchIndex+1].operator == (0x02)){//定位
+           SwitchDataMap.find(switchlist[0]).value().switchwhite = data;//则所经过道岔白光带故障
+       }else if(SwitchNameAndStatus[switchIndex+1].operator == (0x01)){//反位
+            SwitchDataMap.find(switchlist[1]).value().switchwhite = data;//则所经过道岔白光带故障
+       }
+       if(data == 0x02){
+           SwitchDataMap.find(switchlist[0]).value().switchLock = data;//则所经过道岔取消道岔锁闭
+           SwitchDataMap.find(switchlist[1]).value().switchLock = data;//则所经过道岔取消道岔锁闭
+           //SwitchDataMap.find(switchlist[2]).value().switchLock = data;//则所经过联动道岔取消道岔锁闭
+           //SwitchDataMap.find(switchlist[3]).value().switchLock = data;//则所经过联动道岔取消道岔锁闭
+       }
+    }
+}
+
+//【发送信号】
 void InterLock::TimerTicked()
 {
     //InterEncapsalutation(beginSignalID,endSignalID);
@@ -3637,6 +3944,9 @@ void InterLock::SwitchDataCache()
         switchData.switchNameID        = querySwitch.value(5).toInt();
         switchData.blockStatus         = querySwitch.value(6).toInt();
         switchData.switchOccupy        =0x02;
+        switchData.SwitchLoss          =0x02;                               //道岔失表 1为失表 2为正常
+        switchData.switchred           =0x02;                               //道岔红光带故障  1为故障 2清除故障
+        switchData.switchwhite         =0x02;                               //道岔白光带故障  1为故障 2清除故障
         SwitchDataMap[querySwitch.value(0).toInt()] = switchData;
     }
 }
@@ -3652,7 +3962,7 @@ QByteArray InterLock::SwitchEncapsalutation()
     QByteArray frameHead("\x10\x00\x00\x00\x00\x12\x10\x01\x4a\x98\x07\x00",12);
     QByteArray frameEnd("\x59\x4F\x44\x4F",4);
     byte switchNr = SwitchDataMap.count();
-    frameHead[1] = (switchNr*8)+5;
+    frameHead[1] = (switchNr*11)+5;
     frameHead[11] = switchNr;
     switchInitData.append(frameHead);
     for(it = SwitchDataMap.begin();it != SwitchDataMap.end();++it)
@@ -3705,2895 +4015,12 @@ QByteArray InterLock::RuleEncapsalutation()
     return ruleInitData;
 }
 
-//三点检查逐条解锁
-void InterLock::UnlockState(byte beginSignalID,byte endSignalID)
-{
-    QString beginSignalName = QString();
-    QString endSignalName = QString();
-    QString sectionsStr;
-    QString switchesStr;int i;
-    QString selectBeginSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
-    QSqlQuery queryBeginSignal(selectBeginSignalStr);
-    while(queryBeginSignal.next())
-    {
-        beginSignalName = queryBeginSignal.value(3).toString();
-    }
-    QString selectEndSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(endSignalID);
-    QSqlQuery queryEndSignal(selectEndSignalStr);
-    while(queryEndSignal.next())
-    {
-        endSignalName = queryEndSignal.value(3).toString();
-    }
-    QString selectInterlockRouteStr = QString("select * from interlocking WHERE interlocking.BeginSignal = \"%1\" AND interlocking.EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
-    QSqlQuery queryInterlockRoute(selectInterlockRouteStr);
-    while(queryInterlockRoute.next())
-    {
-        sectionsStr = queryInterlockRoute.value(5).toString();
-        qDebug()<<"str"<<sectionsStr;
-        switchesStr = queryInterlockRoute.value(7).toString();
-        qDebug()<<"str"<<switchesStr;
-    }
-    if(sectionsStr.isEmpty() || switchesStr.isEmpty())
-    {
-        return;
-    }
-    QStringList sectionsSplit = sectionsStr.split(",");
-    for(i = 0; i < 2*sectionsSplit.length()-1; i++)
-    {
-        int n=(i+1)/2;
-        if(i == 0)
-        {
-            SectionsDataMap.find(sectionsSplit[0]).value().sectionStatus = 0x01;
-        }
-        if(i != 0)
-        {
-            SectionsDataMap.find(sectionsSplit[n]).value().sectionStatus = 0x01;
-            if(i % 2 == 0)
-            {
-                SectionsDataMap.find(sectionsSplit[n-1]).value().sectionStatus = 0x02;
-            }
-            if(i % 2 != 0)
-            {
-                SectionsDataMap.find(sectionsSplit[n-1]).value().sectionStatus = 0x01;
-            }
-        }
-    }
-    /*for(i=0;i<sectionsSplit.length();i++)
-    {
-        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsSplit[i]);
-        //QMap<int,SignalData>::iterator itSignal = SignalsDataMap.find(beginSignalName);
-        if(0x01 == it.value().sectionStatus)//红光带故障
-        {
-            SectionsDataMap.find(sectionsSplit[i-1]).value().sectionStatus = ;//解锁故障
-            SignalsDataMap.find(beginSignalName).value().signalStatus = 0x01;
-        }
-    }*/
-}
-
-//上电解锁
-void InterLock::ShangDian()
-{
-    SwitchData switchData;
-    QMap<int,SwitchData>::iterator itSwitch;
-    QSqlQuery selectswitch("select * from switch");
-    while(selectswitch.next())
-    {
-        for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
-        {
-            switchData.switchLock = 0x02;//上电后解锁，状态为空闲
-        }
-    }
-}
-
-//引导进路
-void InterLock::YinDaoJL(byte Direction)
-{
-    direction = Direction;
-    QMap<QString,SectionData>::iterator it;
-    QMap<QString,QString>::iterator itstr;
-    for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-    {
-        //XF引导按钮
-        if(0x02 == direction)
-        {
-            if(SwitchDataMap.find(1).value().switchStates == 0x00 && SwitchDataMap.find(19).value().switchStates == 0x00)//单黄闪,道岔定位为0，反位为1
-            {
-                if(SwitchDataMap.find(27).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IIAG").value().LockStatus = 0x01;//白光带,不消失，锁闭状态
-                    SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(1).value().signalStatus = 0x06;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(1).value().signalStatus = 0x01;
-                    }
-                }
-                if(SwitchDataMap.find(27).value().switchStates == 0x01 && SwitchDataMap.find(29).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(1).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(1).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if(SwitchDataMap.find(1).value().switchStates == 0x01 && SwitchDataMap.find(3).value().switchStates == 0x01)
-            {
-                if(SwitchDataMap.find(9).value().switchStates == 0x00 && SwitchDataMap.find(15).value().switchStates == 0x00 && SwitchDataMap.find(17).value().switchStates == 0x00)
-                {
-                    if(SwitchDataMap.find(23).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(1).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(1).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(23).value().switchStates == 0x01 && SwitchDataMap.find(25).value().switchStates == 0x01)
-                    {
-                        SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(1).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(1).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-                if(SwitchDataMap.find(9).value().switchStates == 0x01 && SwitchDataMap.find(11).value().switchStates == 0x01)
-                {
-                    if(SwitchDataMap.find(21).value().switchStates == 0x00 && SwitchDataMap.find(25).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(1).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(1).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(21).value().switchStates == 0x01)
-                    {
-                        SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(1).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(1).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-            }
-        }
-        //X引导按钮
-        if(0x01 == direction)
-        {
-            if(SwitchDataMap.find(5).value().switchStates == 0x01 && SwitchDataMap.find(7).value().switchStates == 0x01 && SwitchDataMap.find(13).value().switchStates == 0x00 && SwitchDataMap.find(11).value().switchStates == 0x00)
-            {
-                if(SwitchDataMap.find(25).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-                if(SwitchDataMap.find(21).value().switchStates == 0x01)
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if(SwitchDataMap.find(5).value().switchStates == 0x00 && SwitchDataMap.find(3).value().switchStates == 0x00 && SwitchDataMap.find(9).value().switchStates == 0x01 && SwitchDataMap.find(11).value().switchStates == 0x01)
-            {
-                if(SwitchDataMap.find(25).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-                if(SwitchDataMap.find(21).value().switchStates == 0x01)
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if(SwitchDataMap.find(5).value().switchStates == 0x00 && SwitchDataMap.find(3).value().switchStates == 0x00 && SwitchDataMap.find(9).value().switchStates == 0x00)
-            {
-                if(SwitchDataMap.find(17).value().switchStates == 0x00)
-                {
-                    if(SwitchDataMap.find(23).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(2).value().signalStatus = 0x06;
-
-                        if(it.value().sectionStatus == 0x01)//红光带占用
-                        {
-                            SignalsDataMap.find(2).value().signalStatus = 0x06;
-                        }
-                    }
-                    if(SwitchDataMap.find(23).value().switchStates == 0x01 && SwitchDataMap.find(25).value().switchStates == 0x01)
-                    {
-                        SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)//红光带占用
-                        {
-                            SignalsDataMap.find(2).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-                if(SwitchDataMap.find(17).value().switchStates == 0x01 && SwitchDataMap.find(19).value().switchStates == 0x01)
-                {
-                    if(SwitchDataMap.find(27).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(2).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(27).value().switchStates == 0x01 && SwitchDataMap.find(29).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(2).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(2).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-            }
-        }
-        //XD引导按钮
-        if(0x03 == direction)
-        {
-            if(SwitchDataMap.find(7).value().switchStates == 0x00)
-            {
-                if(SwitchDataMap.find(11).value().switchStates == 0x00 && SwitchDataMap.find(13).value().switchStates == 0x00)
-                {
-                    if(SwitchDataMap.find(21).value().switchStates == 0x00 && SwitchDataMap.find(25).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(13).value().signalStatus = 0x06;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(13).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(21).value().switchStates == 0x01)
-                    {
-                        SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(13).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(13).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-                if(SwitchDataMap.find(13).value().switchStates == 0x01 && SwitchDataMap.find(15).value().switchStates == 0x01)
-                {
-                    if(SwitchDataMap.find(17).value().switchStates == 0x00 && SwitchDataMap.find(23).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(13).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(13).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(17).value().switchStates == 0x01 && SwitchDataMap.find(19).value().switchStates == 0x01)
-                    {
-                        if(SwitchDataMap.find(27).value().switchStates == 0x00)
-                        {
-                            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                            SignalsDataMap.find(13).value().signalStatus = 0x03;
-
-                            if(it.value().sectionStatus == 0x01)
-                            {
-                                SignalsDataMap.find(13).value().signalStatus = 0x01;
-                            }
-                        }
-                        if(SwitchDataMap.find(27).value().switchStates == 0x01 && SwitchDataMap.find(29).value().switchStates == 0x00)
-                        {
-                            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                            SignalsDataMap.find(13).value().signalStatus = 0x03;
-
-                            if(it.value().sectionStatus == 0x01)
-                            {
-                                SignalsDataMap.find(13).value().signalStatus = 0x01;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        //S引导按钮
-        if(0x04 == direction)
-        {
-            if(SwitchDataMap.find(8).value().switchStates == 0x00 && SwitchDataMap.find(10).value().switchStates == 0x00)
-            {
-                if(SwitchDataMap.find(14).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(4).value().signalStatus = 0x06;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(4).value().signalStatus = 0x01;
-                    }
-                }
-                if(SwitchDataMap.find(14).value().switchStates == 0x01 && SwitchDataMap.find(29).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                    SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(4).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(4).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if(SwitchDataMap.find(10).value().switchStates == 0x01 && SwitchDataMap.find(12).value().switchStates == 0x01)
-            {
-                if(SwitchDataMap.find(16).value().switchStates == 0x00)
-                {
-                    SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(4).value().signalStatus = 0x03;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(4).value().signalStatus = 0x01;
-                    }
-                }
-                if(SwitchDataMap.find(16).value().switchStates == 0x01)
-                {
-                    if(SwitchDataMap.find(18).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(4).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(4).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(18).value().switchStates == 0x01 && SwitchDataMap.find(20).value().switchStates == 0x01)
-                    {
-                        if(SwitchDataMap.find(22).value().switchStates == 0x00)
-                        {
-                            SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                            SignalsDataMap.find(4).value().signalStatus = 0x03;
-
-                            if(it.value().sectionStatus == 0x01)
-                            {
-                                SignalsDataMap.find(4).value().signalStatus = 0x01;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        //SF引导按钮
-        if(0x05 == direction)
-        {
-            if(SwitchDataMap.find(4).value().switchStates == 0x00)
-            {
-                if(SwitchDataMap.find(6).value().switchStates == 0x00 && SwitchDataMap.find(12).value().switchStates == 0x00)
-                {
-                    if(SwitchDataMap.find(16).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(3).value().signalStatus = 0x06;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(3).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(16).value().switchStates == 0x01)
-                    {
-                        if(SwitchDataMap.find(18).value().switchStates == 0x00)
-                        {
-                            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                            SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                            SignalsDataMap.find(3).value().signalStatus = 0x03;
-
-                            if(it.value().sectionStatus == 0x01)
-                            {
-                                SignalsDataMap.find(3).value().signalStatus = 0x01;
-                            }
-                        }
-                        if(SwitchDataMap.find(18).value().switchStates == 0x01 && SwitchDataMap.find(20).value().switchStates == 0x01)
-                        {
-                            if(SwitchDataMap.find(22).value().switchStates == 0x00)
-                            {
-                                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                                SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-                                SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-                                SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                                SignalsDataMap.find(3).value().signalStatus = 0x03;
-
-                                if(it.value().sectionStatus == 0x01)
-                                {
-                                    SignalsDataMap.find(3).value().signalStatus = 0x01;
-                                }
-                            }
-                        }
-                    }
-                }
-                if(SwitchDataMap.find(6).value().switchStates == 0x01 && SwitchDataMap.find(8).value().switchStates == 0x01)
-                {
-                    if(SwitchDataMap.find(14).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(3).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(3).value().signalStatus = 0x01;
-                        }
-                    }
-                    if(SwitchDataMap.find(14).value().switchStates == 0x01 && SwitchDataMap.find(29).value().switchStates == 0x00)
-                    {
-                        SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                        SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                        SignalsDataMap.find(3).value().signalStatus = 0x03;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(3).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-//总人解
-void InterLock::RenGong(byte beginSignalID)
-{
-   /* byte beginID = beginSignalID;
-    RemoveRoute(beginID);*/
-    QString beginSignalName;
-    byte Type;
-    //查询起始信号机ID对应名称
-    QString selectBeginSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
-    QSqlQuery queryBeginSignal(selectBeginSignalStr);
-    while(queryBeginSignal.next())
-    {
-        beginSignalName = queryBeginSignal.value(3).toString();
-    }
-
-    QString selectBeginSignal = QString("select * from linerule WHERE linerule.StarSignalName = %1").arg(beginSignalName);
-    QSqlQuery queryBeginSignal1(selectBeginSignal);
-    while(queryBeginSignal1.next())
-    {
-        Type = queryBeginSignal1.value(3).toInt();
-    }
-    if(RuleDataMap.find(beginSignalName).value().Type == 0 || RuleDataMap.find(beginSignalName).value().Type == 1 || RuleDataMap.find(beginSignalName).value().Type == 2)
-    {
-        QMap<QString,QString>::iterator itstr = LockRouteMap.find(beginSignalName);
-        while(itstr != LockRouteMap.end()&&itstr.key() == beginSignalName)
-        {
-            QString str = itstr.value();
-            QStringList strSplit = str.split(",");
-            for(int i=0; i<strSplit.length(); i++)
-            {
-                QMap<QString,SectionData>::iterator it = SectionsDataMap.find(strSplit[i]); //找到特定的“键-值”对
-                it.value().LockStatus = 0x10;
-            }
-            itstr++;
-        }
-        LockRouteMap.remove(beginSignalName);
-        SignalsDataMap.find(beginSignalID).value().signalStatus = Red;
-    }
-}
-
-//分路不良
-void InterLock::FenLu(int Snum)
-{
-
-}
-
-//调车进路
-void InterLock::DiaoChe()
-{
-    QMap<QString,QString>::iterator itstr;
-    for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-    {
-        if("D1,D9" == itstr.key())
-        {
-            SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(101).value().signalStatus = 0x08;//白
-        }
-        if("D1,D15" == itstr.key())
-        {
-            SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(101).value().signalStatus = 0x08;
-        }
-        if("D3,D9" == itstr.key())
-        {
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(103).value().signalStatus = 0x08;
-        }
-        if("D3,D11" == itstr.key())
-        {
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(103).value().signalStatus = 0x08;
-        }
-        if("D5,D1" == itstr.key())
-        {
-            SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(105).value().signalStatus = 0x08;
-        }
-        if("D7,D3" == itstr.key())
-        {
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(107).value().signalStatus = 0x08;
-        }
-        if("D7,D1" == itstr.key())
-        {
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(107).value().signalStatus = 0x08;
-        }
-        if("D9,S5" == itstr.key())
-        {
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(109).value().signalStatus = 0x08;
-        }
-        if("D9,D13" == itstr.key())
-        {
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(109).value().signalStatus = 0x08;
-        }
-        if("D11,D13" == itstr.key())
-        {
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(111).value().signalStatus = 0x08;
-        }
-        if("D11,S5" == itstr.key())
-        {
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(111).value().signalStatus = 0x08;
-        }
-        if("D11,S3" == itstr.key())
-        {
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(111).value().signalStatus = 0x08;
-        }
-        if("D13,S3" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(113).value().signalStatus = 0x08;
-        }
-        if("D13,SI" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(113).value().signalStatus = 0x08;
-        }
-        if("D13,SII" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(113).value().signalStatus = 0x08;
-        }
-        if("D13,S4" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(113).value().signalStatus = 0x08;
-        }
-        if("D15,SII" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(115).value().signalStatus = 0x08;
-        }
-        if("D15,S4" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(115).value().signalStatus = 0x08;
-        }
-        if("D17,D19" == itstr.key())
-        {
-            SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(117).value().signalStatus = 0x08;
-        }
-        if("D17,D21" == itstr.key())
-        {
-            SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(117).value().signalStatus = 0x08;
-        }
-        if("D19,S4" == itstr.key())
-        {
-            SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("27/29WG").value().LockStatus= 0x01;
-            SignalsDataMap.find(119).value().signalStatus = 0x08;
-        }
-        if("D21,S4" == itstr.key())
-        {
-            SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(121).value().signalStatus = 0x08;
-        }
-        if("S5,D7" == itstr.key())
-        {
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(14).value().signalStatus = 0x08;
-        }
-        if("S5,XD" == itstr.key())
-        {
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(14).value().signalStatus = 0x08;
-        }
-        if("S5,D3" == itstr.key())
-        {
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(14).value().signalStatus = 0x08;
-        }
-        if("S3,D7" == itstr.key())
-        {
-            SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(10).value().signalStatus = 0x08;
-        }
-        if("S3,D3" == itstr.key())
-        {
-            SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(10).value().signalStatus = 0x08;
-        }
-        if("S3,XD" == itstr.key())
-        {
-            SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("21DG").value().LockStatus= 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(10).value().signalStatus = 0x08;
-        }
-        if("SI,D7" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(9).value().signalStatus = 0x08;
-        }
-        if("SI,D3" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(9).value().signalStatus = 0x08;
-        }
-        if("SI,XD" == itstr.key())
-        {
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(9).value().signalStatus = 0x08;
-        }
-        if("SII,D7" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(11).value().signalStatus = 0x08;
-        }
-        if("SII,D5" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(11).value().signalStatus = 0x08;
-        }
-        if("SII,D3" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(11).value().signalStatus = 0x08;
-        }
-        if("SII,XD" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(11).value().signalStatus = 0x08;
-        }
-        if("S4,D3" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(12).value().signalStatus = 0x08;
-        }
-        if("S4,D5" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(12).value().signalStatus = 0x08;
-        }
-        if("S4,D7" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(12).value().signalStatus = 0x08;
-        }
-        if("S4,XD" == itstr.key())
-        {
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("7DG").value().LockStatus  = 0x01;
-            SignalsDataMap.find(12).value().signalStatus = 0x08;
-        }
-        if("D2,D8" == itstr.key())
-        {
-            SectionsDataMap.find("2DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(102).value().signalStatus = 0x08;
-        }
-        if("D2,D14" == itstr.key())
-        {
-            SectionsDataMap.find("2DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("2/20WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(102).value().signalStatus = 0x08;
-        }
-        if("D4,D12" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(104).value().signalStatus = 0x08;
-        }
-        if("D4,D19" == itstr.key())
-        {
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("14DG").value().LockStatus= 0x01;
-            SectionsDataMap.find("4G").value().LockStatus = 0x01;
-            SignalsDataMap.find(104).value().signalStatus = 0x08;
-        }
-        if("D4,XII" == itstr.key())
-        {
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(104).value().signalStatus = 0x08;
-        }
-        if("D6,D2" == itstr.key())
-        {
-            SectionsDataMap.find("2DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(106).value().signalStatus = 0x08;
-        }
-        if("D8,D12" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(108).value().signalStatus = 0x08;
-        }
-        if("D8,XII" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(108).value().signalStatus = 0x08;
-        }
-        if("D8,D19" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4G").value().LockStatus = 0x01;
-            SignalsDataMap.find(108).value().signalStatus = 0x08;
-        }
-        if("D10,D4" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(110).value().signalStatus = 0x08;
-        }
-        if("D10,SF" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(110).value().signalStatus = 0x08;
-        }
-        if("D10,D2" == itstr.key())
-        {
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("2DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(110).value().signalStatus = 0x08;
-        }
-        if("D12,D16" == itstr.key())
-        {
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(112).value().signalStatus = 0x08;
-        }
-        if("D12,X3" == itstr.key())
-        {
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(112).value().signalStatus = 0x08;
-        }
-        if("D12,XI" == itstr.key())
-        {
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(112).value().signalStatus = 0x08;
-        }
-        if("D14,D16" == itstr.key())
-        {
-            SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(114).value().signalStatus = 0x08;
-        }
-        if("D16,X5" == itstr.key())
-        {
-            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(116).value().signalStatus = 0x08;
-        }
-        if("D16,D18" == itstr.key())
-        {
-            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(116).value().signalStatus = 0x08;
-        }
-        if("D18,D6" == itstr.key())
-        {
-            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("2/20WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(118).value().signalStatus = 0x08;
-        }
-        if("D18,D10" == itstr.key())
-        {
-            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(118).value().signalStatus = 0x08;
-        }
-        if("X5,D6" == itstr.key())
-        {
-            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("20DG").value().LockStatus= 0x01;
-            SectionsDataMap.find("2/20WG").value().LockStatus = 0x01;
-            SignalsDataMap.find(15).value().signalStatus = 0x08;
-        }
-        if("X5,D10" == itstr.key())
-        {
-            SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(15).value().signalStatus = 0x08;
-        }
-        if("X3,D10" == itstr.key())
-        {
-            SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(6).value().signalStatus = 0x08;
-        }
-        if("XI,D10" == itstr.key())
-        {
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(8).value().signalStatus = 0x08;
-        }
-        if("XII,D4" == itstr.key())
-        {
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(5).value().signalStatus = 0x08;
-        }
-        if("XII,SF" == itstr.key())
-        {
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(5).value().signalStatus = 0x08;
-        }
-        if("XII,D2" == itstr.key())
-        {
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("2DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(5).value().signalStatus = 0x08;
-        }
-        if("X4,D4" == itstr.key())
-        {
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(7).value().signalStatus = 0x08;
-        }
-        if("X4,SF" == itstr.key())
-        {
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(7).value().signalStatus = 0x08;
-        }
-        if("X4,D2" == itstr.key())
-        {
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("2DG").value().LockStatus = 0x01;
-            SignalsDataMap.find(7).value().signalStatus = 0x08;
-        }
-       // RuleDataMap1.find().value().Type = 3;
-    }
-}
-
-//故障设置
-void InterLock::GuZhang(byte Nameid,byte Sstatus)
-{
-    byte statue = Sstatus;
-    QString secname;
-    QString sectionforswitch;
-    QString sectionforswitch2;
-    byte switchid;
-    QString selectnameid = QString("select * from section WHERE section.sectionnameid = %1").arg(Nameid);
-    QSqlQuery querynameid(selectnameid);
-    while(querynameid.next())
-    {
-        secname = querynameid.value(1).toString();
-        sectionforswitch = querynameid.value(6).toString();
-        sectionforswitch2 = querynameid.value(7).toString();
-    }
-//    if(statue == 0x01)//红光带故障
-//    {
-//        if(SectionsDataMap.find(secname).value().sectionForSwitch == NULL)
-//        {
-//            SectionsDataMap.find(secname).value().sectionStatus = 0x03;//红光带故障
-//        }
-//        else
-//        {
-//            if(SectionsDataMap.find(secname).value().sectionForSwitch2 == NULL)
-//            {
-//                QString selectswitchid = QString("select * from switch WHERE switch.SwitchID = %1").arg(sectionforswitch);
-//                QSqlQuery queryswitchid(selectswitchid);
-//                while(queryswitchid.next())
-//                {
-//                    switchid == queryswitchid.value(0).toString();
-//                }
-//                if(SwitchDataMap.find(switchid).value().switchStates == 0x01)
-//                {
-//                    SectionsDataMap.find(secname).value().sectionStatus = 0x03;
-//                }
-//            }
-//            else if(SectionsDataMap.find(secname).value().sectionForSwitch2 != NULL)
-//            {
-//                QString selectswitchid = QString("select * from switch WHERE switch.SwitchID = %1").arg(sectionforswitch2);
-//                QSqlQuery queryswitchid(selectswitchid);
-//                while(queryswitchid.next())
-//                {
-//                    switchid == queryswitchid.value(0).toString();
-//                }
-//                if(SwitchDataMap.find(switchid).value().switchStates == 0x01)
-//                {
-//                    SectionsDataMap.find(secname).value().sectionStatus = 0x03;
-//                }
-//            }
-//        }
-//    }
-//    if(statue == 0x02)//白光带故障
-//    {
-//        if(SectionsDataMap.find(secname).value().sectionForSwitch == NULL)
-//        {
-//            SectionsDataMap.find(secname).value().LockStatus = 0x04;//白光带故障
-//        }
-//        else
-//        {
-//            if(SectionsDataMap.find(secname).value().sectionForSwitch2 == NULL)
-//            {
-//                QString selectswitchid = QString("select * from switch WHERE switch.SwitchID = %1").arg(sectionforswitch);
-//                QSqlQuery queryswitchid(selectswitchid);
-//                while(queryswitchid.next())
-//                {
-//                    switchid == queryswitchid.value(0).toString();
-//                }
-//                if(SwitchDataMap.find(switchid).value().switchStates == 0x01)
-//                {
-//                    SectionsDataMap.find(secname).value().LockStatus = 0x04;
-//                }
-//            }
-//            else if(SectionsDataMap.find(secname).value().sectionForSwitch2 != NULL)
-//            {
-//                QString selectswitchid = QString("select * from switch WHERE switch.SwitchID = %1").arg(sectionforswitch2);
-//                QSqlQuery queryswitchid(selectswitchid);
-//                while(queryswitchid.next())
-//                {
-//                    switchid == queryswitchid.value(0).toString();
-//                }
-//                if(SwitchDataMap.find(switchid).value().switchStates == 0x01)
-//                {
-//                    SectionsDataMap.find(secname).value().LockStatus = 0x04;
-//                }
-//            }
-//        }
-//    }
-}
-
-//闭塞操作
-void InterLock::BiSe(byte Direction)
-{
-    byte direction = Direction;
-    if(0x01 == direction)//X
-    {}
-    if(0x02 == direction)//XF
-    {}
-    if(0x03 == direction)//XD
-    {}
-    if(0x04 == direction)//S
-    {}
-    if(0x05 == direction)//SF
-    {}
-}
-
-
-//设置进路
-void InterLock::SetupRoute(byte beginSignalID,byte endSignalID)
-{
-    QString beginSignalName = QString();
-    QString endSignalName = QString();
-    QString sectionsStr;//建立进路经过的区段
-    QString switchesStr;//建立进路经过的道岔
-    //查询起始信号机ID对应名称
-    QString selectBeginSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
-    QSqlQuery queryBeginSignal(selectBeginSignalStr);
-    while(queryBeginSignal.next())
-    {
-        beginSignalName = queryBeginSignal.value(3).toString();
-    }
-    //查询结束信号机ID对应名称
-    QString selectEndSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(endSignalID);
-    QSqlQuery queryEndSignal(selectEndSignalStr);
-    while(queryEndSignal.next())
-    {
-        endSignalName = queryEndSignal.value(3).toString();
-    }
-    //获取建立进路信息
-    QString selectInterlockRouteStr = QString("select * from interlocking WHERE interlocking.BeginSignal = \"%1\" AND interlocking.EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
-    QSqlQuery queryInterlockRoute(selectInterlockRouteStr);
-    while(queryInterlockRoute.next())
-    {
-        sectionsStr = queryInterlockRoute.value(5).toString();
-        qDebug()<<"str"<<sectionsStr;
-        switchesStr = queryInterlockRoute.value(7).toString();
-        qDebug()<<"str"<<switchesStr;
-    }
-    if(sectionsStr.isEmpty() || switchesStr.isEmpty())
-    {
-        //QByteArray nullInfo("\xFF",1);进路不存在!
-        //udpSocket_receive->writeDatagram(nullInfo,QHostAddress("127.0.0.1"),4402);
-        return;
-    }
-    //检查建立进路中区段是否占用及锁闭
-    QStringList sectionsSplit = sectionsStr.split(",");
-    for(int i=0; i<sectionsSplit.length(); i++)
-    {
-        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsSplit[i]); //找到特定的“键-值”对
-        if(0x01 == it.value().sectionStatus || 0x01 == it.value().LockStatus)
-        {
-            qDebug()<<it.value().sectionStatus<<it.value().LockStatus;
-            //QByteArray nullInfo("\xFF",1);区段占用或锁闭
-            //udpSocket_receive->writeDatagram(nullInfo,QHostAddress("127.0.0.1"),4402);
-            return;
-        }
-    }
-    //锁闭区段
-    QMap<QString,SectionData>::iterator it;
-    for(int i=0; i<sectionsSplit.length(); i++)
-    {
-        it = SectionsDataMap.find(sectionsSplit[i]); //找到特定的“键-值”对
-        it.value().LockStatus = 0x01;
-    }
-
-    LockRouteMap.insert(beginSignalName,sectionsStr);
-    QByteArray switchesInfo("\x10\x00\x00\x00\x00\x12\x10\x01\x4a\x98\x07\x03\x10\x00\x10\x00\x10\x00\x59\x4F\x44\x4F",22);
-    QByteArray num = switchesStrextract(switchesStr);
-
-    udpSocket->writeDatagram(switchesInfo,QHostAddress("127.0.0.1"),4402);
-//    QString signalStr = QString("%1,%2").arg(beginSignalName).arg(endSignalName);
-//    LockRouteDirectionMap.insert(signalStr,sectionsStr);
-//    InterEncapsulation(XF_Direction,X_Direction,SF_Direction,S_Direction);
-}
-
-
-//进路信息缓存，暂定01为锁定,02为无状态
-void InterLock::InterEncapsalutation(byte beginSignalID,byte endSignalID)
-{
-    QString beginSignalName = QString();
-    QString endSignalName = QString();
-
-    QString SectionNames;
-    QString SwitchNames;
-
-    QList<SectionData> Sections;
-    QList<SwitchData> Switchs;
-    LineRuleData ruledata;
-    SectionData sdata;
-    QString lineruleid;
-    QString First;
-    int switchname;
-
-    //起点信号机ID取得起点信号机名字
-    QString selectbeginsignalid = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
-    QSqlQuery querybeginsignalid(selectbeginsignalid);
-    while(querybeginsignalid.next())
-    {
-        beginSignalName = querybeginsignalid.value(3).toString();
-    }
-    //终点信号机ID取得终点信号机名字
-    QString selectendsignalid = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(endSignalID);
-    QSqlQuery queryendsignalid(selectendsignalid);
-    while(queryendsignalid.next())
-    {
-        endSignalName = queryendsignalid.value(3).toString();
-    }
-
-    //进路中所有的道岔
-    QString selectinterlock = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
-    QSqlQuery queryinterlocking(selectinterlock);
-
-    while(queryinterlocking.next())
-    {
-        First = queryinterlocking.value(9).toString();
-        //条件判断,暂时设置First = 1
-        lineruleid = queryinterlocking.value(0).toString();
-        SectionNames = queryinterlocking.value(5).toString();
-        SwitchNames = queryinterlocking.value(7).toString();
-        if(SectionNames.count() == 0 || SwitchNames.count() == 0)
-        {
-            return ;
-        }
-        //拆分区段名字
-        QStringList sectionsplit = SectionNames.split(",");
-        foreach (QString sectionname, sectionsplit) {
-            QString sectionid;
-            QString selectsection = QString("SELECT * FROM sectioninfo WHERE SectionName = \"%1\"").arg(sectionname);
-            QSqlQuery querysection(selectsection);
-            while(querysection.next())
-            {
-                sectionid = querysection.value(0).toString();
-                SectionsDataMap.find(sectionid).value().LockStatus = 0x01;   //对象锁闭状态
-                sdata = SectionsDataMap.find(sectionid).value(); //从缓存中找到以拆分出的区段为名的对象
-                //Sections.append(sdata);                            //加入进路区段集合中
-            }
-        }
-        LockRouteMap[beginSignalName] = SectionNames;
-
-        int i = 0;
-        QMap<int,SwitchData>::iterator switchit;
-        QByteArray num = switchesStrextract(SwitchNames);
-        for(int k=0;k<num.count();k+=2){
-            switchname = num[k];
-            for(switchit = SwitchDataMap.begin();switchit != SwitchDataMap.end();++switchit)
-            {
-                if(num[k+1].operator == (0x01)){//反位
-                    if(switchit.value().switchName == switchname && switchit.value().switchPos == 1){
-                        switchit.value().switchLock = 0x01;
-                        //Switchs.append(switchit.value());
-                    }
-                }else if(num[k+1].operator == (0x02)){ //定位
-                    if(switchit.value().switchName == switchname && switchit.value().switchPos == 0){
-                        switchit.value().switchLock = 0x01;
-                        //Switchs.append(switchit.value());
-                    }
-                }
-                i++;
-            }
-        }
-        LockSwitchMap[beginSignalName] = SwitchNames;
-        //为当前进路赋值：起点终点信号机名字、规则序号、规则ID、规则内所有的区段、规则内所有的道岔
-//        ruledata.beginSignalName = beginSignalName;
-//        ruledata.endSignalName = endSignalName;
-//        ruledata.First = First.toInt();
-//        ruledata.lineruleID = lineruleid.toInt();
-//        ruledata.sections = Sections;
-//        ruledata.switchs = Switchs;
-//        NewRuleDataMap[ruledata.lineruleID] = ruledata;
-    }
-
-//    QString selectlinerule = QString("select * from linerule WHERE StarSignalName = \"%1\" AND EndSignalName = \"%2\"").arg(beginSignalName).arg(endSignalName);
-//    QSqlQuery querylinerule(selectlinerule);
-//    int len = querylinerule.size();
-//    while(querylinerule.next())
-//    {
-//        lineruleid = querylinerule.value(0).toString();
-//        First = querylinerule.value(4).toString();
-//        QString lineforsection = QString("select * FROM lineruleforsection ls INNER JOIN section s ON ls.SectionID = s.SectionID WHERE ls.LineruleID = %1").arg(lineruleid);
-//        QSqlQuery querylineforsection(lineforsection);
-//        while(querylineforsection.next())
-//        {
-//            sdata.sectionId = querylineforsection.value(2).toInt();
-//            sdata.sectionName = querylineforsection.value(4).toString();
-//            sdata.sectionWee = querylineforsection.value(5).toString();
-//            sdata.LockStatus = querylineforsection.value(6).toString();
-//            sdata.LockStatus = querylineforsection.value(6).toString();
-//        }
-//        QSqlQuery querylinerule(selectlinerule);
-//        //RuleDataMap[lineruleid] =
-
-//    }
-//    for(var i = 0 ;i<len;i++){
-//        lineruleid = querylinerule.value(0).toInt();
-//        First = querylinerule.value(4).toInt();
-//    }
-//    if(len == 1)
-//    {
-//        QString selectsectionfirst = QString("select * from interlockinginfo WHERE interlockinginfo.First1 = %1").arg(First);
-//        QSqlQuery querysectionfirst(selectsectionfirst);
-//        while(querysectionfirst.next())
-//        {
-//            First1 = querysectionfirst.value(9).toString();
-//        }
-//        if(First == First1)
-//        {
-//            if(Sections.isEmpty() || Switchs.isEmpty())
-//            {
-//                return ;
-//            }
-//            else
-//            {
-//                for(int i=0;i<sectionsplit.length();i++)
-//                {
-//                    QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsplit[i]);
-//                    if(0x01 == it.value().LockStatus || 0x01 == it.value().sectionStatus || 0x01 == it.value().blockStatus)
-//                    {
-//                        return ;
-//                    }
-//                    else
-//                    {
-//                        SectionsDataMap.find(sectionsplit[i]).value().LockStatus = 0x01;
-//                        if()
-//                        {
-//                            SignalsDataMap.find(beginSignalID).value().signalStatus = 0x03;//黄
-//                        }
-//                        else
-//                        {
-//                            SignalsDataMap.find(beginSignalID).value().signalStatus = 0x04;//双黄闪
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//    if(len == 2)
-//    {
-//        QString selectsectionfirst = QString("select * from interlockinginfo WHERE interlockinginfo.First1 = %1").arg(First);
-//        QSqlQuery querysectionfirst(selectsectionfirst);
-//        while(querysectionfirst.next())
-//        {
-//            First1 = querysectionfirst.value(9).toString();
-//        }
-//        if(First == First1)
-//        {
-//            if(First1 == 1)
-//            {
-//                if(Sections.isEmpty() || Switchs.isEmpty())
-//                {
-//                    First1 = 2;
-//                }
-//                else
-//                {
-//                    for(int i=0;i<sectionsplit.length();i++)
-//                    {
-//                        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsplit[i]);
-//                        if(0x01 == it.value().LockStatus || 0x01 == it.value().sectionStatus || 0x01 == it.value().blockStatus)
-//                        {
-//                            First1 = 2;
-//                        }
-//                        else
-//                        {
-//                            SectionsDataMap.find(sectionsplit[i]).value().LockStatus = 0x01;
-//                            if(Switchs)
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x03;
-//                            }
-//                            else
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x04;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//            else if(First1 == 2)
-//            {
-//                if(Sections.isEmpty() || Switchs.isEmpty())
-//                {
-//                    return ;
-//                }
-//                else
-//                {
-//                    for(int i=0;i<sectionsplit.length();i++)
-//                    {
-//                        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsplit[i]);
-//                        if(0x01 == it.value().LockStatus || 0x01 == it.value().sectionStatus || 0x01 == it.value().blockStatus)
-//                        {
-//                            return ;
-//                        }
-//                        else
-//                        {
-//                            SectionsDataMap.find(sectionsplit[i]).value().LockStatus = 0x01;
-//                            if()
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x03;
-//                            }
-//                            else
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x04;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//    if(len == 3)
-//    {
-//        QString selectsectionfirst = QString("select *from interlockinginfo WHERE interlockinginfo.First1 = %1").arg(First);
-//        QSqlQuery querysectionfirst(selectsectionfirst);
-//        while(querysectionfirst.next())
-//        {
-//            First1 = querysectionfirst.value(9).toString();
-//        }
-//        if(First == First1)
-//        {
-//            if(First1 == 1)
-//            {
-//                if(Sections.isEmpty() || Switchs.isEmpty())
-//                {
-//                    First1 = 2;
-//                }
-//                else
-//                {
-//                    for(int i=0;i<sectionsplit.length();i++)
-//                    {
-//                        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsplit[i]);
-//                        if(0x01 == it.value().LockStatus || it.value().sectionStatus || 0x01 == it.value().blockStatus)
-//                        {
-//                            First1 = 2;
-//                        }
-//                        else
-//                        {
-//                            SectionsDataMap.find(sectionsplit[i]).value().LockStatus = 0x01;
-//                            if()
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x03;
-//                            }
-//                            else
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x04;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//            if(First1 == 2)
-//            {
-//                if(Sections.isEmpty() || Switchs.isEmpty())
-//                {
-//                    First1 = 3;
-//                }
-//                else
-//                {
-//                    for(int i=0;i<sectionsplit.length();i++)
-//                    {
-//                        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsplit[i]);
-//                        if(0x01 == it.value().LockStatus || 0x01 == it.value().sectionStatus || it.value().blockStatus)
-//                        {
-//                            First1 = 3;
-//                        }
-//                        else
-//                        {
-//                            SectionsDataMap.find(sectionsplit[i]).value().LockStatus = 0x01;
-//                            if()
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x03;
-//                            }
-//                            else
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x04;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//            if(First1 == 3)
-//            {
-//                if(Sections.isEmpty() || Switchs.isEmpty())
-//                {
-//                    return ;
-//                }
-//                else
-//                {
-//                    for(int i=0;i<sectionsplit.length();i++)
-//                    {
-//                        QMap<QString,SectionData>::iterator it = SectionsDataMap.find(sectionsplit[i]);
-//                        if(0x01 == it.value().LockStatus || 0x01 == it.value().sectionStatus || 0x01 == it.value().blockStatus)
-//                        {
-//                            return ;
-//                        }
-//                        else
-//                        {
-//                            SectionsDataMap.find(sectionsplit[i]).value().LockStatus = 0x01;
-//                            if()
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x03;
-//                            }
-//                            else
-//                            {
-//                                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x04;
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-
-
-   /* if(0x10 == XDirection)//1线正向方向解析
-    {
-        itSignal = SignalsDataMap.find(2);
-        itSignal.value().signalStatus = 0x01;
-
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-            //if(beginSignalName = "X" && endSingalName = "X5")
-            if("X,X5" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(2);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus= 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                if(SectionsDataMap.find("3DG").value().sectionStatus == 0x01 || SectionsDataMap.find("9-15DG").value().sectionStatus == 0x01)//判断道岔是否空闲来确定设置那条进路
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)//红光带故障或者白光带故障,分路不良
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-                else if(SectionsDataMap.find("7DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if("X,X3" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(2);
-                itSignal.value().signalStatus = 0x03;
-
-                if(SectionsDataMap.find("7DG").value().sectionStatus == 0x01)
-                {
-                    if(SectionsDataMap.find("17-23DG").value().sectionStatus == 0x01)
-                    {
-                        SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(2).value().signalStatus = 0x01;
-                        }
-                    }
-                    else if(SectionsDataMap.find("11-13DG").value().sectionStatus == 0x01)
-                    {
-                        SectionsDataMap.find("IAG").value().LockStatus= 0x01;
-                        SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                        SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                        if(it.value().sectionStatus == 0x01)
-                        {
-                            SignalsDataMap.find(2).value().signalStatus = 0x01;
-                        }
-                    }
-                }
-                else
-                {
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(2).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if("X,XI" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(2);
-                itSignal.value().signalStatus = 0x06;
-
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(2).value().signalStatus = 0x01;
-                }
-            }
-            if("X,XII" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(2);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(2).value().signalStatus = 0x01;
-                }
-            }
-            if("X,X4" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(2);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                SignalsDataMap.find(2).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(2).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x01 == XDirection)//1线反向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-//            itSignal = SignalsDataMap.find("");
-//            itSignal.value().signalStatus = ;
-
-            if("S5,X" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(14);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(14).value().signalStatus = 0x01;
-
-                if(SectionsDataMap.find("7DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(14).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(14).value().signalStatus = 0x01;
-                    }
-                }
-                else if(SectionsDataMap.find("9-15DG").value().sectionStatus == 0x01 || SectionsDataMap.find("3DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(14).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(14).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if("S3,X" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(10);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                if(SectionsDataMap.find("21DG").value().sectionStatus == 0x01 || SectionsDataMap.find("11-13DG").value().sectionStatus == 0x01 || SectionsDataMap.find("7DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(10).value().signalStatus = 0x01;
-                    }
-                }
-                else if(SectionsDataMap.find("17-23DG").value().sectionStatus == 0x01 || SectionsDataMap.find("7DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(10).value().signalStatus = 0x01;
-                    }
-                }
-                else if(SectionsDataMap.find("17-23DG").value().sectionStatus == 0x01 || SectionsDataMap.find("9-15DG").value().sectionStatus == 0x01 || SectionsDataMap.find("3DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(10).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if("SI,X" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(9);
-                itSignal.value().signalStatus = 0x06;
-
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(9).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(9).value().signalStatus = 0x01;
-                }
-            }
-            if("SII,X" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(11);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(11).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(11).value().signalStatus = 0x01;
-                }
-            }
-            if("S4,X" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(12);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(12).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(12).value().signalStatus = 0x01;
-                }
-            }
-        }    
-}
-    if(0x10 == XFDirection)//2线正向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-//            itSignal = SignalsDataMap.find("");
-//            itSignal.value().signalStatus = ;
-
-            if("S4,XF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(12);
-                itSignal.value().signalStatus = Double_yellow_flicker;
-
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(12).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(12).value().signalStatus =0x01;
-                }
-            }
-            if("SII,XF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(11);
-                itSignal.value().signalStatus = 0x06;
-
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(11).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(11).value().signalStatus = 0x01;
-                }
-            }
-            if("SI,XF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(9);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(9).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(9).value().signalStatus = 0x01;
-                }
-            }
-            if("S3,XF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(10);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                if(SectionsDataMap.find("21DG").value().sectionStatus == 0x01 || SectionsDataMap.find("11-13DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(10).value().signalStatus = 0x01;
-                    }
-                }
-                else if(SectionsDataMap.find("17-23DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                    SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(10).value().signalStatus = 0x01;
-                    }
-                }
-            }
-            if("S5,XF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(14);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SignalsDataMap.find(14).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(14).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x01 == XFDirection)//2线反向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-            itSignal = SignalsDataMap.find(1);
-            itSignal.value().signalStatus = 0x01;
-
-            if("XF,X4" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(1);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(1).value().signalStatus = 0x01;
-                }
-            }
-            if("XF,XII" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(1);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(1).value().signalStatus = 0x01;
-                }
-            }
-            if("XF,XI" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(1);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(1).value().signalStatus =0x01;
-                }
-            }
-            if("XF,X3" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(1);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                if(SectionsDataMap.find("11-13DG").value().sectionStatus == 0x01 || SectionsDataMap.find("21DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(1).value().signalStatus = 0x01;
-                    }
-                }
-                if(SectionsDataMap.find("17-23DG").value().sectionStatus == 0x01)
-                {
-                    SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                    SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                    SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                    if(it.value().sectionStatus == 0x01)
-                    {
-                        SignalsDataMap.find(1).value().signalStatus =0x01;
-                    }
-                }
-            }
-            if("XF,X5" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(1);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-                SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                SignalsDataMap.find(1).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(1).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x10 == SDirection)//3线正向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-            itSignal = SignalsDataMap.find(4);
-            itSignal.value().signalStatus = 0x01;
-
-            if("S,S4" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(4);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                SignalsDataMap.find(4).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(4).value().signalStatus = 0x01;
-                }
-            }
-            if("S,SII" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(4);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10BG").value().LockStatus = 0x01;
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                SignalsDataMap.find(4).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(4).value().signalStatus = 0x01;
-                }
-            }
-            if("S,SI" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(4);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                SignalsDataMap.find(4).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(4).value().signalStatus = 0x01;
-                }
-            }
-            if("S,S3" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(4);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                SignalsDataMap.find(4).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(4).value().signalStatus =0x01;
-                }
-            }
-            if("S,S5" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(4);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(4).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(4).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x01 == SDirection)//3线反向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-//            itSignal = SignalsDataMap.find("");
-//            itSignal.value().signalStatus = Red;
-
-            if("X4,S" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(7);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SignalsDataMap.find(7).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(7).value().signalStatus = 0x01;
-                }
-            }
-            if("XII,S" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(5);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SignalsDataMap.find(5).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(5).value().signalStatus = 0x01;
-                }
-            }
-            if("XI,S" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(8);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SignalsDataMap.find(8).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(8).value().signalStatus = 0x01;
-                }
-            }
-            if("X3,S" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(6);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SignalsDataMap.find(6).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(6).value().signalStatus = 0x01;
-                }
-            }
-            if("X5,S" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(15);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-                SignalsDataMap.find(15).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(15).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x10 == SFDirection)//4线正向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-//            itSignal = SignalsDataMap.find("");
-//            itSignal.value().signalStatus = Red;
-
-            if("X5,SF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(15);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(15).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(15).value().signalStatus = 0x01;
-                }
-            }
-            if("X3,SF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(6);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(6).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(6).value().signalStatus = 0x01;
-                }
-            }
-            if("XI,SF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(8);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(8).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(8).value().signalStatus = 0x01;
-                }
-            }
-            if("XII,SF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(5);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(5).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                     SignalsDataMap.find(5).value().signalStatus = 0x01;
-                }
-            }
-            if("X4,SF" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(7);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(7).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(7).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x01 == SFDirection)//4线反向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-            itSignal = SignalsDataMap.find(3);
-            itSignal.value().signalStatus = 0x01;
-
-            if("SF,S5" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(3);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("20DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("22DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                SignalsDataMap.find(3).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(3).value().signalStatus = 0x01;
-                }
-            }
-            if("SF,S3" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(3);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("18DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                 SignalsDataMap.find(3).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                     SignalsDataMap.find(3).value().signalStatus = 0x01;
-                }
-            }
-            if("SF,SI" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(3);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                SignalsDataMap.find(3).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(3).value().signalStatus = 0x01;
-                }
-            }
-            if("SF,SII" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(3);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                SignalsDataMap.find(3).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(3).value().signalStatus = 0x01;
-                }
-            }
-            if("SF,S4" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(3);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                SignalsDataMap.find(3).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(3).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x10 == XDDirection)//5线正向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-            itSignal = SignalsDataMap.find(13);
-            itSignal.value().signalStatus = 0x01;
-
-            if("XD,X5" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(13);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("5G").value().LockStatus = 0x01;
-                SignalsDataMap.find(13).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(13).value().signalStatus = 0x01;
-                }
-            }
-            if("XD,X3" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(13);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("3G").value().LockStatus = 0x01;
-                SignalsDataMap.find(13).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(13).value().signalStatus = 0x01;
-                }
-            }
-            if("XD,XI" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(13);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IG").value().LockStatus = 0x01;
-                SignalsDataMap.find(13).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(13).value().signalStatus = 0x01;
-                }
-            }
-            if("XD,XII" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(13);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-                SignalsDataMap.find(13).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(13).value().signalStatus = 0x01;
-                }
-            }
-            if("XD,X4" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(13);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("27/29WG").value().LockStatus = 0x01;
-                SectionsDataMap.find("29DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("4G").value().LockStatus = 0x01;
-                SignalsDataMap.find(13).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(13).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x01 == XDDirection)//5线反向方向解析
-    {
-        for(itstr = LockRouteMap.begin();itstr != LockRouteMap.end();++itstr)
-        {
-//            itSignal = SignalsDataMap.find("");
-//            itSignal.value().signalStatus = Red;
-
-            if("S5,XD" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(14);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(14).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(14).value().signalStatus = 0x01;
-                }
-            }
-            if("S3,XD" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(10);
-                itSignal.value().signalStatus = 0x07;
-
-                SectionsDataMap.find("25DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("21DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(10).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(10).value().signalStatus = 0x01;
-                }
-            }
-            if("SI,XD" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(9);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(9).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(9).value().signalStatus = 0x01;
-                }
-            }
-            if("SII,XD" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(11);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(11).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(11).value().signalStatus = 0x01;
-                }
-            }
-            if("S4,XD" == itstr.key())
-            {
-                itSignal = SignalsDataMap.find(12);
-                itSignal.value().signalStatus = 0x03;
-
-                SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("11-13DG").value().LockStatus = 0x01;
-                SectionsDataMap.find("7DG").value().LockStatus = 0x01;
-                SignalsDataMap.find(12).value().signalStatus = 0x01;
-
-                if(it.value().sectionStatus == 0x01)
-                {
-                    SignalsDataMap.find(12).value().signalStatus = 0x01;
-                }
-            }
-        }
-    }
-    if(0x10 == XDirection && 0x10 == SFDirection)//X到SF的正向通路
-    {
-        if((LockRouteMap.end() != LockRouteMap.find("X,XI")) && (LockRouteMap.end() != LockRouteMap.find("XI,SF")))
-        {
-            itSignal = SignalsDataMap.find(2);
-            itSignal.value().signalStatus = 0x06;
-            itSignal = SignalsDataMap.find(8);
-            itSignal.value().signalStatus = 0x06;
-
-            SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IG").value().LockStatus = 0x01;
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("4DG").value().sectionStatus = 0x01;
-
-            if(it.value().sectionStatus == 0x01)
-            {
-                SignalsDataMap.find(2).value().signalStatus = 0x01;
-            }
-        }
-    }
-    if(0x01 == XDirection && 0x01 == SFDirection)//X到SF的反向通路
-    {
-        if((LockRouteMap.end() != LockRouteMap.find("SF,SI")) && (LockRouteMap.end() != LockRouteMap.find("SI,X")))
-        {
-            itSignal = SignalsDataMap.find(3);
-            itSignal.value().signalStatus = 0x06;
-            itSignal = SignalsDataMap.find(9);
-            itSignal.value().signalStatus = 0x06;
-
-            SectionsDataMap.find("4DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("6-12DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("16DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IG").value().LockStatus = 0x01;
-            SectionsDataMap.find("17-23DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("9-15DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("3DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("5DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IAG").value().LockStatus = 0x01;
-
-            if(it.value().sectionStatus == 0x01)
-            {
-                SignalsDataMap.find(3).value().signalStatus = 0x01;
-            }
-        }
-    }
-    if(0x10 == SDirection && 0x10 == XFDirection)//S到XF的正向通路
-    {
-        if((LockRouteMap.end() != LockRouteMap.find("S,SII")) && (LockRouteMap.end() != LockRouteMap.find("SII,XF")))
-        {
-            itSignal = SignalsDataMap.find(4);
-            itSignal.value().signalStatus = 0x06;
-            itSignal = SignalsDataMap.find(11);
-            itSignal.value().signalStatus = 0x06;
-
-            SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-
-            if(it.value().sectionStatus == 0x01)
-            {
-                SignalsDataMap.find(4).value().signalStatus = 0x01;
-            }
-        }
-    }
-    if(0x01 == SDirection && 0x01 == XFDirection)//S到XF的反向通路
-    {
-        if((LockRouteMap.end() != LockRouteMap.find("XF,XII")) && (LockRouteMap.end() != LockRouteMap.find("XII,S")))
-        {
-            itSignal = SignalsDataMap.find(1);
-            itSignal.value().signalStatus = 0x06;
-            itSignal = SignalsDataMap.find(5);
-            itSignal.value().signalStatus = 0x06;
-
-            SectionsDataMap.find("IIAG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("1/19WG").value().LockStatus = 0x01;
-            SectionsDataMap.find("19-27DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IIG").value().LockStatus = 0x01;
-            SectionsDataMap.find("14DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("8-10DG").value().LockStatus = 0x01;
-            SectionsDataMap.find("IIBG").value().LockStatus = 0x01;
-
-            if(it.value().sectionStatus == 0x01)
-            {
-                SignalsDataMap.find(1).value().signalStatus = 0x01;
-            }
-        }
-    }*/
-}
-
 void InterLock::on_pushButton_clicked()
 {
-    SetupRoute(1,8);
+    //SetupRoute(1,8);
 }
 
 void InterLock::on_pushButton_2_clicked()
 {
-    RemoveRoute(1,1);
+    //RemoveRoute(1,1);
 }

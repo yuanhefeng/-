@@ -47,6 +47,8 @@ struct SwitchData
     byte blockStatus;                           //封锁状态 01为封锁 02为解锁
     byte SwitchLoss;                            //道岔失表 01为失表 02位正常
     byte switchOccupy;                          //占用状态 01为占用 02为空闲
+    byte switchred;                             //红光带故障
+    byte switchwhite;                           //白光带故障
 };//道岔信息封装
 
 struct LineRuleData
@@ -104,7 +106,7 @@ public:
     byte direction;
 
     void SectionDataCache();
-    void UnlockState(byte beginSignalID,byte endSignalID);//实现三点检查逐条解锁
+
     void SignalDataCache();
     void SwitchDataCache();
     void RuleDataCache();
@@ -113,8 +115,14 @@ public:
     QByteArray SwitchEncapsalutation();
     QByteArray RuleEncapsalutation();
     QByteArray switchesStrextract(QString switchesStr);
+    QString SelectIdForName(QString Name);
+    int SelectCountForName(QString Name);
+    QList<int> SelectSwitchIdForName(QString Name);
+    void SwitchWhite(int count,QString SectionName,QByteArray SwitchNameAndStatus,byte data);
+
 
     //功能方法
+    void ShangDian();//上电解锁
     void InLine(byte beginSignalID,byte endSignalID,int type);//进路设置:type=1正常进路;type=2引导进路
     void RemoveRoute(byte beginSignalID,int type); //取消进路:type=1正常进路取消;type=2引导进路取消【总人解】
     void YinDaoJL(byte Direction);//引导进路
@@ -126,8 +134,12 @@ public:
     void XinHaoCK(byte SignalID);//信号重开
     void DSDS(byte SignalID, byte Status);//灯丝断丝
     void DSFY(byte Status);//灯丝复原
+    void UnlockState(byte beginSignalID);//模拟行车
+    void MessageListAdd(int type,int id,int messageid);//信息提示框信息增加
+    void HBGZ(byte sectionnameid,byte status);//红白光带故障
+    void sleep(unsigned int msec);//非阻塞延迟方法
 
-    void ShangDian();//上电解锁
+
     void SetupRoute(byte beginSignalID,byte endSignalID);
     void RenGong(byte beginSignalID);//总人解    
     void FenLu(int Snum);//分路不良
@@ -164,7 +176,7 @@ private:
     QMap<int,SignalData> SignalsDataMap;
     QMap<QString,QString> LockRouteMap;//锁闭线路
     QMap<QString,QString> LockSwitchMap;//锁闭道岔
-    QMap<QString,QList<QString>> RuleMap;//进路记录
+    QMap<QString,QList<QString>> RuleMap;//进路记录,键为
 
     QMap<int,SwitchData> SwitchDataMap;//道岔信息封装
     QMap<QString,LineRuleData> RuleDataMap;//进路规则封装
