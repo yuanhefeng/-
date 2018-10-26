@@ -265,7 +265,7 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
             endSignalName = queryendsignalid.value(3).toString();
         }
         //进路中所有的道岔
-        sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
+        sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\" and `First` = 1").arg(beginSignalName).arg(endSignalName);
     }
     else if(type ==2){   //引导进路
         //QString LineName = beginSignalName + "引导";
@@ -298,7 +298,7 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         if(endSignalName == NULL || endSignalName == ""){
             return;
         }else{
-            sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
+            sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\" and `First` = 1").arg(beginSignalName).arg(endSignalName);
         }
     }
     QSqlQuery queryinterlocking(sql);
@@ -1097,7 +1097,7 @@ void InterLock::FengSuo(byte Id,byte Type)
     }
     if(0x02 == Type)//封锁道岔
     {
-        QString selectswitchid = QString("SELECT * from switch where SwitchName IN (select SwitchName from switch WHERE SwitchName = %1)").arg(Id);
+        QString selectswitchid = QString("SELECT * from switch where SwitchNameID IN (select SwitchNameID from switch WHERE SwitchName = %1)").arg(Id);
         QSqlQuery querySwitchid(selectswitchid);
         while(querySwitchid.next())
         {
@@ -3789,34 +3789,28 @@ void InterLock::ZhanYong(byte sectionID)//nameid
     QString id = QString::number(sectionID, 10);
     if(SectionsDataMap.find(id).value().sectionStatus==0x01)
     {
-        MessageListAdd(1,sectionID,1);
+        MessageListAdd(1,sectionID,7);
         SectionsDataMap.find(id).value().sectionStatus=0x02;
     }
     else{
-        MessageListAdd(1,sectionID,7);
+        MessageListAdd(1,sectionID,1);
         SectionsDataMap.find(id).value().sectionStatus=0x01;
     }
-    QList<int> forswithc;
     QString selectSeName =QString("select *from section WHERE section.sectionnameid=%1").arg(id);
     QSqlQuery sqlName(selectSeName);
+
     while(sqlName.next())
     {
         SectionName=sqlName.value(1).toString();
         int sectionforswtich = sqlName.value(4).toInt();
-        if(sectionforswtich != NULL){
-            forswithc.append(sectionforswtich);
-        }
-    }
-    for(int i=0; i<forswithc.length();i++){
-        if(SwitchDataMap.find(forswithc[i]).value().switchStates == 0x01){
-            if(SwitchDataMap.find(forswithc[i]).value().switchOccupy == 0x01){
-                SwitchDataMap.find(forswithc[i]).value().switchOccupy = 0x02;
+        if(SwitchDataMap.find(sectionforswtich).value().switchStates == 0x01){
+            if(SwitchDataMap.find(sectionforswtich).value().switchOccupy == 0x01){
+                SwitchDataMap.find(sectionforswtich).value().switchOccupy = 0x02;
             }else{
-                SwitchDataMap.find(forswithc[i]).value().switchOccupy = 0x01;
+                SwitchDataMap.find(sectionforswtich).value().switchOccupy = 0x01;
             }
         }
     }
-
     QMap<QString,QList<QString>>::iterator ruledata;
      //int i=0;
     for(ruledata = RuleMap.begin();ruledata != RuleMap.end();++ruledata)
@@ -3849,18 +3843,11 @@ void InterLock::ZhanYong(byte sectionID)//nameid
 void InterLock::SwitchLoss(byte SwitchName)//nameid
 {
     int switchid;
-    int SwitchNameid;
-    QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
+    QString selectSwitchID = QString("SELECT * from switch where SwitchNameID IN (select SwitchNameID from switch WHERE SwitchName = %1)").arg(SwitchName);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
-        SwitchNameid = sqlSwitchID.value(5).toInt();
-    }
-    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);
-    QSqlQuery sqlSwitchid(selectSwitchid);
-    while(sqlSwitchid.next())
-    {
-        switchid = sqlSwitchid.value(0).toInt();
+        switchid = sqlSwitchID.value(0).toInt();
         SwitchDataMap.find(switchid).value().SwitchLoss=0x01;
         MessageListAdd(2,switchid,133);
         if(0x00 ==SwitchDataMap.find(switchid).value().switchPos)//如果是定位就启用
@@ -3878,12 +3865,13 @@ void InterLock::SwitchLoss(byte SwitchName)//nameid
 //【12操作·道岔取消失表】 √
 void InterLock::SwitchNoLoss(byte SwitchName){
     int switchid;
-    QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
+    QString selectSwitchID = QString("SELECT * from switch where SwitchNameID IN (select SwitchNameID from switch WHERE SwitchName = %1)").arg(SwitchName);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
         switchid = sqlSwitchID.value(0).toInt();
         SwitchDataMap.find(switchid).value().SwitchLoss = 0x02;
+        MessageListAdd(2,switchid,134);
     }
 }
 
@@ -4071,7 +4059,7 @@ void InterLock::HBGZ(byte sectionnameid, byte status)
     {
         if(ruledata.value()[1].contains(sectionName))
         {
-            QString signalname =ruledata.value()[3];
+            QString signalname =ruledata.key();
             QString sectionNameList = ruledata.value()[1];
             QStringList sectionName = sectionNameList.split(",");
             QString sectionend = sectionName[sectionName.length()-1];
