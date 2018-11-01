@@ -30,7 +30,7 @@ InterLock::InterLock(QWidget *parent) :
 
     if(udpSocket->bind(QHostAddress("127.0.0.1"),4001))
     {
-        qDebug()<<"XXXXXXX";
+        qDebug()<<"XXXXXX2";
     }
 
   /*  X_Direction = 0xff;
@@ -64,7 +64,7 @@ InterLock::InterLock(QWidget *parent) :
         SectionDataCache();
         SignalDataCache();
         SwitchDataCache();
-        //RuleDataCache();
+        TestStationSwitch();
         Chance ++;
     }
     timer->start(1000);
@@ -76,6 +76,8 @@ InterLock::~InterLock()
 }
 
 int i=0;
+int fq=0;
+int fq1=0;
 void InterLock::readPendingDatagrams()
 {
     while (udpSocket_receive->hasPendingDatagrams())
@@ -114,7 +116,7 @@ void InterLock::readPendingDatagrams()
                     qDebug() <<"RemoveRoute:"<< buf.toHex();
                     RemoveRoute(buf[12],1);
                 }
-                if(0x22 == buf[7])//信号重开
+                if(0x42 == buf[7])//信号重开
                 {
                     qDebug() <<"XinHaoCK:"<<buf.toInt();
                     XinHaoCK(buf[12]);
@@ -195,7 +197,8 @@ void InterLock::readPendingDatagrams()
                 if(0x40 == buf[7])//模拟行车————————————————————————√
                 {
                     qDebug() <<"UnlockState:"<<buf.toInt();
-                    UnlockState(buf[12]);
+                    //UnlockState(buf[12]);
+                    TestUnlockState(buf[12]);
                 }
                 if(0x23==buf[7])//红白光带故障————————————————————————√
                 {
@@ -245,6 +248,7 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
     QString sql;//sql语句
     QString Type;//进路类型：侧线/正线/通路/调车
     QList<QString> RuleList;//需要向所有进路集合增加的本次进路（包括起点信号机、经过地所有区段、道岔、进路类型）
+    QList<QString> RuleList1;
     QList<int> OneSwitch = {21,27,29,14,22,16};
     QMap<int,SwitchData> test = SwitchDataMap;
 
@@ -399,7 +403,7 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         lineruleid = queryinterlockingB.value(0).toString();
         SectionNames = queryinterlockingB.value(5).toString();
         SwitchNames = queryinterlockingB.value(7).toString();
-        Type = queryinterlockingB.value(8).toString();
+        Type = queryinterlockingB.value(9).toString();
         if(SectionNames.count() == 0 || SwitchNames.count() == 0)
         {
             return ;
@@ -429,11 +433,11 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                         MessageListAdd(2,switchid,61);
                     }
                     if(type == 1){//对象正常锁闭
-                        SwitchDataMap.find(switchid).value().switchLock = 0x01;
+                        SwitchDataMap.find(switchid).value().switchRoute = 0x01;
                         LockSwitchs += switchidString + ",";
                         MessageListAdd(2,switchid,62);
                     }else if(type == 2){//对象引导锁闭
-                        SwitchDataMap.find(switchid).value().switchLock = 0x03;
+                        SwitchDataMap.find(switchid).value().switchRoute = 0x03;
                         LockSwitchs += switchidString + ",";
                         MessageListAdd(2,switchid,62);
                     }
@@ -445,11 +449,11 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                         MessageListAdd(2,switchid,60);
                     }
                     if(type == 1){//对象正常锁闭
-                        SwitchDataMap.find(switchid).value().switchLock = 0x01;
+                        SwitchDataMap.find(switchid).value().switchRoute = 0x01;
                         LockSwitchs += switchidString + ",";
                         MessageListAdd(2,switchid,62);
                     }else if(type == 2){//对象引导锁闭
-                        SwitchDataMap.find(switchid).value().switchLock = 0x03;
+                        SwitchDataMap.find(switchid).value().switchRoute = 0x03;
                         LockSwitchs += switchidString + ",";
                         MessageListAdd(2,switchid,62);
                     }
@@ -832,12 +836,14 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
             SignalsDataMap.find(beginSignalID).value().signalStatus=0x0f;//红白
         }
 
+        RuleList1.append(SectionNames);
         RuleList.append(Type);
         RuleList.append(SectionNames);
         RuleList.append(SwitchNames);
         LockSwitchs.chop(1);
         RuleList.append(LockSwitchs);
         RuleMap[beginSignalName] = RuleList;
+        RuleMap1[beginSignalName]=RuleList1;
     }
 }
 
@@ -971,15 +977,15 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
                     if(switchit.value().switchName == switchname && switchit.value().switchPos == 1){
                         if(type == 1)
                         { //总取消
-                            if(switchit.value().switchLock == 0x01){
-                                switchit.value().switchLock = 0x02;
+                            if(switchit.value().switchRoute == 0x01){
+                                switchit.value().switchRoute = 0x02;
                                 switchremove = true;
                             }
                         }
                         else if(type == 2)
                         { //总人解
-                            if(switchit.value().switchLock == 0x01 || switchit.value().switchLock == 0x03){
-                                switchit.value().switchLock = 0x02;
+                            if(switchit.value().switchRoute == 0x01 || switchit.value().switchRoute == 0x03){
+                                switchit.value().switchRoute = 0x02;
                                 switchremove = true;
                             }
                         }
@@ -988,15 +994,15 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
                     if(switchit.value().switchName == switchname && switchit.value().switchPos == 0){
                         if(type == 1)
                         { //总取消
-                            if(switchit.value().switchLock == 0x01){
-                                switchit.value().switchLock = 0x02;
+                            if(switchit.value().switchRoute == 0x01){
+                                switchit.value().switchRoute = 0x02;
                                 switchremove = true;
                             }
                         }
                         else if(type == 2)
                         { //总人解
-                            if(switchit.value().switchLock == 0x01 || switchit.value().switchLock == 0x03){
-                                switchit.value().switchLock = 0x02;
+                            if(switchit.value().switchRoute == 0x01 || switchit.value().switchRoute == 0x03){
+                                switchit.value().switchRoute = 0x02;
                                 switchremove = true;
                             }
                         }
@@ -1008,10 +1014,40 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
         swIt++;
     }
     if(sectionremove == true && switchremove == true){
-        RuleMap.remove(beginSignalName);
-        SignalsDataMap.find(beginSignalID).value().signalStatus = Red;
-    }
 
+        if(SignalsDataMap.find(beginSignalID).value().signalType==0x03)
+        {
+            if(SignalsDataMap.find(beginSignalID).value().RedAllDSStatus==0x01||SignalsDataMap.find(beginSignalID).value().GreenAllDSStatus==0x01)
+            {
+                SignalsDataMap.find(beginSignalID).value().signalStatus=0x07;
+            }
+            else if(SignalsDataMap.find(beginSignalID).value().DSStatus==0x01)
+            {
+                SignalsDataMap.find(beginSignalID).value().signalStatus= 0x0c;
+            }
+            else {SignalsDataMap.find(beginSignalID).value().signalStatus= 0x07;
+            }
+            SignalsDataMap.find(beginSignalID).value().signalLockStatus=0x02;//信号机开放
+        }
+        else
+        {
+            if(SignalsDataMap.find(beginSignalID).value().RedAllDSStatus==0x01||SignalsDataMap.find(beginSignalID).value().GreenAllDSStatus==0x01)
+            {
+                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x01;
+            }
+            else if(SignalsDataMap.find(beginSignalID).value().DSStatus==0x01)
+            {
+                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x09;
+            }
+            else
+            {
+                SignalsDataMap.find(beginSignalID).value().signalStatus = 0x01;
+            }
+
+            SignalsDataMap.find(beginSignalID).value().signalLockStatus=0x02;//信号机机开放
+        }
+       RuleMap.remove(beginSignalName);
+    }
 }
 
 //【03操作·引导总锁】 √
@@ -1020,35 +1056,86 @@ void InterLock::YinDaoZS(byte Direction)
     //01为锁闭状态，02为未锁闭
     byte direction = Direction;
     SwitchData switchData;
+//    QString SwitchID;
+//    QString SwitchID1;
     QMap<int,SwitchData>::iterator itSwitch;
+//    QMap<QString,QList<QString>> ::iterator it;
+//    for(it=RuleMap.begin();it!=RuleMap.end();it++)
+//    {
+//        SwitchID=it.value()[3];
+//    }
 
     if(0x01 == direction)//X引导总锁
     {
         for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
         {
-            if(itSwitch.value().switchName % 2 != 0)//为奇数
-            {
-                itSwitch.value().switchLock = 0x01;
+            int SwitchName =itSwitch.value().switchName;
+//            QString selectID =QString("select *from switch WHERE switch.SwitchName=%1").arg(SwitchName);
+//            QSqlQuery sqlID(selectID);
+//            while(sqlID.next())
+//            {
+//                SwitchID1=sqlID.value(0).toString();
+//            }
+//            if(SwitchID.contains(SwitchID1))
+//            {
+//                continue;
+//            }
+               if(fq%2==0)
+                {
+                    if(itSwitch.value().switchName % 2 != 0)//为奇数
+                    {
+                        itSwitch.value().switchLock = 0x01;
+                        MessageListAdd(2,SwitchName,68);
+                    }
+                }
+                else if(fq%2!=0)
+                {
+                    if(itSwitch.value().switchName % 2 != 0)//为奇数
+                    {
+                        itSwitch.value().switchLock = 0x02;
+                        MessageListAdd(2,SwitchName,70);
+                    }
+                }
             }
-        }
+        fq++;
     }
     if(0x02 == direction)//S引导总锁
     {
         for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
         {
-            if(itSwitch.value().switchName % 2 == 0)//为偶数
-            {
-                itSwitch.value().switchLock = 0x01;
+            int SwitchName =itSwitch.value().switchName;
+                if(fq1%2==0)
+                {
+                    if(itSwitch.value().switchName % 2 == 0)//为偶数
+                    {
+                        itSwitch.value().switchLock = 0x01;
+                        MessageListAdd(2,SwitchName,68);
+                    }
+                }
+                else if(fq1%2!=0)
+                {
+                    if(itSwitch.value().switchName % 2 == 0)//为偶数
+                    {
+                        itSwitch.value().switchLock = 0x02;
+                        MessageListAdd(2,SwitchName,70);
+                    }
+                }
             }
-        }
+        fq1++;
     }
 }
 
-//【04操作·封锁按钮（封锁/取消封锁）】√
+//【04操作·封锁按钮（封锁/取消封锁）】√  在有进路的情况下不能封锁道岔和区段
 void InterLock::FengSuo(byte Id,byte Type)
 {
+    int sectionid;
+    QString SWITCHID;
     QString thisid = QString::number(Id, 10);
+    QString sectionname;
     int Switchid;
+    int switchnameid;
+    int lswitchid;
+
     if(0x01 == Type)//封锁信号机
     {
         if(SignalsDataMap.find(Id).value().blockStatus != 0x01){
@@ -1058,41 +1145,105 @@ void InterLock::FengSuo(byte Id,byte Type)
         }
 
     }
+//    QString selectsignalname = QString("select *from section WHERE section.Sectionnameid=%1").arg(Id);
+//    QSqlQuery sqlsignalname(selectsignalname);
+//    while(sqlsignalname.next())
+//    {
+//        signalname=sqlsignalname.value(1).toString();
+//    }
+
     if(0x03 == Type)//封锁轨道
     {
-        UpdateSection(thisid,"blockStatus",0x00);
+        qDebug()<<SectionsDataMap.find(thisid).value().blockStatus;
+        QString selectsectionname =QString("SELECT *from section WHERE section.Sectionnameid=%1").arg(Id);
+        QSqlQuery sqlname(selectsectionname);
+        while(sqlname.next())
+        {
+            sectionid=sqlname.value(0).toInt();
+            sectionname=sqlname.value(1).toString();
+        }
+        QMap<QString,QList<QString>>::iterator it;
+        for(it =RuleMap.begin();it !=RuleMap.end();it++)
+        {
+            if(it.value()[1].contains(sectionname))
+            {
+                MessageListAdd(1,sectionid,138);
+                return;
+            }
+        }
+        if(SectionsDataMap.find(thisid).value().blockStatus != 0x01)
+        {
+            SectionsDataMap.find(thisid).value().blockStatus = 0x01;
+        }
+        else
+        {
+            SectionsDataMap.find(thisid).value().blockStatus = 0x02;
+        }
     }
     if(0x02 == Type)//封锁道岔
     {
-        QString selectswitchid = QString("SELECT * from switch where SwitchNameID IN (select SwitchNameID from switch WHERE SwitchName = %1)").arg(Id);
+        int frq=0;
+        QString selectswitchid = QString("SELECT * from switch where SwitchName IN (select SwitchName from switch WHERE SwitchName = %1)").arg(Id);
         QSqlQuery querySwitchid(selectswitchid);
         while(querySwitchid.next())
         {
             Switchid = querySwitchid.value(0).toInt();
-            if(SwitchDataMap.find(Switchid).value().blockStatus != 0x01)
+            SWITCHID = querySwitchid.value(0).toString();
+            switchnameid = querySwitchid.value(5).toInt();
+            QMap<QString,QList<QString>>::iterator it;
+            for(it =RuleMap.begin();it !=RuleMap.end();it++)
             {
-                SwitchDataMap.find(Switchid).value().blockStatus = 0x01;
+                if(it.value()[3].contains(SWITCHID))
+                {
+                    MessageListAdd(2,Switchid,137);
+                    return;
+                }
             }
-            else
+            frq++;
+            if(frq==1)
             {
-                SwitchDataMap.find(Switchid).value().blockStatus = 0x02;
+                QString selectSW =QString("select *from switch where switch.SwitchNameID=%1").arg(switchnameid);
+                QSqlQuery sqlSW(selectSW);
+                while(sqlSW.next())
+                {
+                    lswitchid = sqlSW.value(0).toInt();
+                    if(SwitchDataMap.find(lswitchid).value().blockStatus != 0x01)
+                    {
+                        SwitchDataMap.find(lswitchid).value().blockStatus = 0x01;
+                    }
+                    else
+                    {
+                        SwitchDataMap.find(lswitchid).value().blockStatus = 0x02;
+                    }
+                }
             }
         }
     }
 }
 
-//【05操作·区故解】
+//【05操作·区故解】√
 void InterLock::QuGJ(byte Snum)
 {
+    QMap<QString,QList<QString>> test = RuleMap1;
     QString sectionname;//声明①——需要区故解区段名字
     QString SectionId;//声明②——区故解区段ID
     QString SectionIdAdd;//声明③——区故解下一个区段ID
     QString SectionIdReduce;//声明④——区故解上一个区段ID
     int i;//声明⑥——区故解区段在进路锁闭区段中地检索号。
+    int zi;
     int SectionIdCount;//声明⑨——区故解区段分轨数量
     int SectionIdAddCount;//声明⑩——区故解下一个区段分轨数量
     int SectionIdReduceCount;//声明十一——区故解上一个区段分轨数量
-    QString SwitchName;
+    QString beginsignalname;
+    QString beginsignalname1;
+    int signalid;
+    QString sectioncache;
+    QString NameList2;
+    QStringList sectioncache1;
+    QString sectioncache2;
+    QStringList sectionvalue;
+    QStringList NameList1;
+//    QList<QString>heihei1;
     //根据区段的nameid查找到区段名字
     QString selectsid = QString("select * from section WHERE section.sectionnameid = %1").arg(Snum);
     QSqlQuery queryid(selectsid);
@@ -1101,12 +1252,91 @@ void InterLock::QuGJ(byte Snum)
         sectionname = queryid.value(1).toString();
     }
 
-    //循环所有进路
+    //实现进路区段全被区故解时的进路缓存清除
+    QMap<QString,QList<QString>> ::iterator it1;
+    for(it1 = RuleMap1.begin();it1 != RuleMap1.end();++it1)
+    {
+        beginsignalname1 = it1.key();
+        if(it1.value()[0].contains(sectionname))
+        {
+            NameList1 = it1.value()[0].split(",");
+            int len=NameList1.length();
+            zi=NameList1.indexOf(sectionname);
+            if(len>3)
+            {
+                if(zi==0)
+                {
+                   NameList1.replace(zi,NULL);
+                }
+                if(zi==1)
+                {
+                    NameList1.replace(zi,NULL);
+                    NameList1.replace(zi-1,NULL);
+                }
+                if(zi== len-1)
+                {
+                    NameList1.replace(zi,NULL);
+                }
+                if(zi ==len-2)
+                {
+                    NameList1.replace(zi,NULL);
+                    NameList1.replace(zi+1,NULL);
+                }
+                if(zi>0&&zi<len-1)
+                {
+                    NameList1.replace(zi,NULL);
+                }
+            }
+            else if(len==3)
+            {
+                if(zi==0)
+                {
+                     NameList1.replace(zi,NULL);
+                }
+                if(zi==1)
+                {
+                     NameList1.replace(zi,NULL);
+                     NameList1.replace(zi+1,NULL);
+                }
+                if(zi==2)
+                {
+                     NameList1.replace(zi,NULL);
+                }
+            }
+            else if(len==2||len==1)
+            {
+                 NameList1.replace(zi,NULL);
+            }
+            for(int zu=0;zu<NameList1.length();zu++)
+            {
+                NameList2=NameList1[zu];
+                sectioncache1.append(NameList2);
+                sectioncache = sectioncache1.join(",");
+                sectioncache2 = sectioncache1.join("");
+
+            }
+            sectionvalue.append(sectioncache);
+            RuleMap1[beginsignalname1]= sectionvalue;
+        }
+    }
+   //循环所有进路
     QMap<QString,QList<QString>> ::iterator it;
     for(it = RuleMap.begin();it != RuleMap.end();++it)
     {
         //如果该条进路的区段字符串拼接中包含需要区故解的区段
         if(it.value()[1].contains(sectionname)){
+            beginsignalname = it.key();
+            QString selectsignalid = QString("SELECT *from signalinfo WHERE signalinfo.SingalName=\"%1\"").arg(beginsignalname);
+            QSqlQuery sqlsignalid(selectsignalid);
+            while(sqlsignalid.next())
+            {//区故解该进路信号灯变红
+                signalid=sqlsignalid.value(0).toInt();
+                if(RuleMap.find(beginsignalname).value()[0]=='4')
+                {
+                    SignalsDataMap.find(signalid).value().signalStatus=0x07;
+                }
+                else SignalsDataMap.find(signalid).value().signalStatus=0x01;
+            }
             QByteArray SwitchNameAndStatus = switchesStrextract(it.value()[2]);//声明⑦——需要区故解地进路中地所有道岔名字+定反位
             QStringList NameList = it.value()[1].split(",");//声明⑧——需要区故解地进路中地所有区段名字
             i = NameList.indexOf(sectionname);//区故解区段在进路锁闭区段中地检索号。
@@ -1126,83 +1356,151 @@ void InterLock::QuGJ(byte Snum)
             if(itsec.value().SectionWhiteObstacle == 0x01 || itsec.value().LockStatus == 0x01)
             {
                 SwitchWhite(SectionIdCount,sectionname,SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                UpdateSection(SectionId,"SectionWhiteObstacle",0x02);//取消该区段的白光带故障
-                UpdateSection(SectionId,"LockStatus",0x02);//取消该区段的锁闭状态
-                //第一个区段故障
-                if(i == 0)
+                SectionsDataMap.find(SectionId).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
+                SectionsDataMap.find(SectionId).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                if(len>3)
                 {
-                    if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                        UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
-                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                    }
-                }
-                //第二个区段故障
-                else if(i == 1){
-                    if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                        UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
-                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                    }
-                    UpdateSection(SectionIdReduce,"SectionWhiteObstacle",0x02);//连带取消第一个区段地白光带故障
-                    UpdateSection(SectionIdReduce,"LockStatus",0x02);//连带取消第一个区段地锁闭状态
-                    SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                }
-                //如果是最后一段区段故障
-                else if(i == len-1)
-                {
-                    for(int j=i-1;j>=0;j--)
+                    //第一个区段故障
+                    if(i == 0)
                     {
-                        QString SectionIdJ = SelectIdForName(NameList[j]);
-                        QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                        if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                            continue;
-                        }else{
-                            itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                            int SectionIdCountJ = SelectCountForName(NameList[j]);
-                            SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        }
+                    }
+                    //第二个区段故障
+                    else if(i == 1){
+                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        }
+                        SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x02;//连带取消第一个区段地白光带故障
+                        SectionsDataMap.find(SectionIdReduce).value().LockStatus = 0x02;//连带取消第一个区段地锁闭状态
+                        SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                    }
+                    //如果是最后一段区段故障
+                    else if(i == len-1)
+                    {
+                        for(int j=i-1;j>=0;j--)
+                        {
+                            QString SectionIdJ = SelectIdForName(NameList[j]);
+                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                continue;
+                            }else{
+                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                        }
+                    }
+                    //如果是倒数第二段区段故障
+                    else if(len>2 && i == len-2)
+                    {
+                        for(int j=i-1;j>=0;j--)
+                        {
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
+                            SectionsDataMap.find(SectionIdAdd).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                            QString SectionIdJ = SelectIdForName(NameList[j]);
+                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                continue;
+                            }else{
+                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                        }
+                    }
+                    //如果是进路中的中间区段
+                    else if(i>0 && i<len-1)
+                    {
+                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        }
+                        for(int j=i-1;j>=0;j--)
+                        {
+                            QString SectionIdJ = SelectIdForName(NameList[j]);
+                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                continue;
+                            }else{
+                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                        }
+                    }
+
+                }
+                else if(len==3)
+                {
+                    if(i==0)
+                    {
+                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                        {
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        }
+                    }
+                    if(i==1)
+                    {
+                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                        {
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        }
+                        SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;
+                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);
+                    }
+                    if(i==2)
+                    {
+                        for(int j=i-1;j>=0;j--)
+                        {
+                            QString SectionIdJ = SelectIdForName(NameList[j]);
+                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02)
+                            {//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                continue;
+                            }
+                            else
+                            {
+                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
                         }
                     }
                 }
-                //如果是倒数第二段区段故障
-                else if(len>2 && i == len-2)
+                else if(len==2)
                 {
-                    for(int j=i-1;j>=0;j--)
+                    if(i==0)
                     {
-                        UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x02);//取消该区段的白光带故障
-                        UpdateSection(SectionIdAdd,"LockStatus",0x02);//取消该区段的锁闭状态
-                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                        QString SectionIdJ = SelectIdForName(NameList[j]);
-                        QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                        if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                            continue;
-                        }else{
-                            itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                            int SectionIdCountJ = SelectCountForName(NameList[j]);
-                            SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                        {
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                         }
                     }
-                }
-                //如果是进路中的中间区段
-                else if(i>0 && i<len-1)
-                {
-                    if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                        UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
-                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                    }
-                    for(int j=i-1;j>=0;j--)
+                    if(i==1)
                     {
-                        QString SectionIdJ = SelectIdForName(NameList[j]);
-                        QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                        if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                            continue;
-                        }else{
-                            itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                            int SectionIdCountJ = SelectCountForName(NameList[j]);
-                            SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                        if(SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdReduce).value().LockStatus != 0x02)
+                        {
+                            SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x01;//上一位区段变成白光带故障
+                            SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                         }
                     }
                 }
             }
+
         }
+
+    }
+    if(sectioncache2.isEmpty())
+    {
+        RuleMap.remove(beginsignalname1);
     }
 }
 
@@ -1218,247 +1516,245 @@ void InterLock::XinHaoCK(byte SignalID)
         beginSignalName=sqlname.value(3).toString();
         qDebug()<<"beginSignalName:"<<beginSignalName;
     }
-    if(RuleMap.keys().contains(beginSignalName))
+    QMap<QString,QList<QString>>::iterator its;
+    for(its=RuleMap.begin();its!=RuleMap.end();its++)
     {
-        for(int i=0;i<RuleMap[beginSignalName].length();i++)
+        if(RuleMap.keys().contains(beginSignalName))
         {
-            QString type=RuleMap[beginSignalName][0];
-            QString sectionname=RuleMap[beginSignalName][1];
-            QStringList SectionName=sectionname.split(",");
-            QString sectionend =SectionName[SectionName.length()-1];
-            QString selectendid = QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(sectionend);
-            QSqlQuery sqlendid(selectendid);
-            while(sqlendid.next())
+            for(int i=0;i<RuleMap[beginSignalName].length();i++)
             {
-                endid=sqlendid.value(0).toString();
-            }
-            for(int a=0; a<SectionName.length();a++)
-            {
-                qDebug()<<SectionName[a];
-                QString sectionid;
-                QString selectid= QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(SectionName[a]);
-                QSqlQuery sqlid(selectid);
-                while(sqlid.next())
+                QString type=RuleMap[beginSignalName][0];
+                QString sectionname=RuleMap[beginSignalName][1];
+                QStringList SectionName=sectionname.split(",");
+                QString sectionend =SectionName[SectionName.length()-1];
+                QString selectendid = QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(sectionend);
+                QSqlQuery sqlendid(selectendid);
+                while(sqlendid.next())
                 {
-                    sectionid=sqlid.value(0).toString();
-                    qDebug()<<sectionid;
-                    if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)//||SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01
+                    endid=sqlendid.value(0).toString();
+                }
+                for(int a=0; a<SectionName.length();a++)
+                {
+                    qDebug()<<SectionName[a];
+                    QString sectionid;
+                    QString selectid= QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(SectionName[a]);
+                    QSqlQuery sqlid(selectid);
+                    while(sqlid.next())
                     {
-//                        if(type=='4')
-//                        {
-//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
-//                        }
-//                        else
-//                        {
-//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
-//                        }
-                        return;
-                    }
-//                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x02)
-//                    {
-//                        continue;
-//                    }
-//                    else if(SignalsDataMap.find(SignalID).value().signalLockStatus==0x01&&SectionsDataMap.find(sectionid).value().sectionStatus==0x01)
-//                    {
-//                        SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-//                        return;
-//                    }
-                    else if(endid==sectionid)//检查全部区段都没有故障占用
+                        sectionid=sqlid.value(0).toString();
+                        qDebug()<<sectionid;
+                        if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01||SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
-                        if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                        {
-                            if(type=='1')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                            }
-                            else if(type=='2')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                            }
-                            else if(type=='3')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                            }
-                            else if(type=='4')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                            }
-                            else if(type=='5')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                            }
-                            if(i==0)
-                            {
-                                MessageListAdd(3,SignalID,38);
-                            }
-
+                            MessageListAdd(3,SignalID,137);
+                            return;
                         }
-                        else {
-                            if(type=='1')
+                        else if(endid==sectionid)//检查全部区段都没有故障占用
                             {
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                            if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                            {
+                                if(type=='1')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
+                                }
+                                else if(type=='2')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+                                }
+                                else if(type=='3')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+                                }
+                                else if(type=='4')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                                }
+                                else if(type=='5')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+                                }
+                                if(i==0)
+                                {
+                                    MessageListAdd(3,SignalID,38);
+                                }
+
                             }
-                            if(type=='2')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                            }
-                            if(type=='3')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                            }
-                            if(type=='4')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                            }
-                            if(type=='5')
-                            {
-                                SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                            }
-                            if(i==0)
-                            {
-                                MessageListAdd(3,SignalID,38);
+                            else {
+                                if(type=='1')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                }
+                                if(type=='2')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                }
+                                if(type=='3')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                }
+                                if(type=='4')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                }
+                                if(type=='5')
+                                {
+                                    SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
+                                }
+                                if(i==0)
+                                {
+                                    MessageListAdd(3,SignalID,38);
+                                }
                             }
                         }
-
-//                        }
                     }
                 }
             }
         }
-    }
-    else
-    {
-        return;
+        else
+        {
+            return;
+        }
     }
 }
 
 //【07操作·道岔总定反,单解锁】 √
 void InterLock::ZongDingFanDanJieSuo(byte Snum,byte Sstatus)
 {
-    int SwitchID;
-    int SwitchNameID;
-    int SwitchName;
+   int SwitchID;
+    QString switchid;
+//    int SwitchNameID;
+//    int SwitchName;
     int at=0;
+    QString STID;//ID字符添加
+//    int switchid;
     QString selectSwitchID = QString("select *from switch WHERE switch.SwitchNameID =%1").arg(Snum);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
-        at++;
         SwitchID=sqlSwitchID.value(0).toInt();
-        SwitchNameID =sqlSwitchID.value(5).toInt();
-        SwitchName = sqlSwitchID.value(1).toInt();
-        //道岔单锁
-        if(Sstatus == 0x03)
-        {
-            if(0x01 == SwitchDataMap.find(SwitchID).value().switchLock)
-            {
-                return;
-            }
-            else
+        switchid=sqlSwitchID.value(0).toString();
+
+        if(Sstatus == 0x03)//道岔单锁
                 {
-                SwitchDataMap.find(SwitchID).value().switchLock = 0x01;
-                if(at%2==1)
+                    if(0x01 == SwitchDataMap.find(SwitchID).value().switchLock)
+                    {
+                        return;
+                    }
+                    else
+                        {
+                        SwitchDataMap.find(SwitchID).value().switchLock = 0x01;
+                        if(at%2==1)
+                        {
+                            MessageListAdd(2,SwitchID,62);
+                        }
+
+                    }
+                    continue;
+                }
+                //道岔解锁
+                if(Sstatus == 0x04)
                 {
-                    MessageListAdd(2,SwitchID,62);
+                    if(0x02 == SwitchDataMap.find(SwitchID).value().switchLock)
+                    {
+                        return;
+                    }
+                    else
+                    {
+                        SwitchDataMap.find(SwitchID).value().switchLock = 0x02;
+                        if(at%2==1)
+                        {
+                            MessageListAdd(2,SwitchID,67);
+                        }
+                    }
+                    continue;
+
                 }
 
-            }
-            continue;
-
+                if(SwitchDataMap.find(SwitchID).value().SwitchLoss==0x01||SwitchDataMap.find(SwitchID).value().switchLock==0x01)//在道岔失表的或锁闭情况
+                {
+                    if(at==1)
+                    {
+                        MessageListAdd(2,SwitchID,136);
+                    }
+                    if(at==3)
+                    {
+                        MessageListAdd(2,SwitchID,136);
+                    }
+                    continue;
+                }
+        STID.append(switchid);
+        STID.append(",");
+        //如果道岔有故障或占用
+        if(SwitchDataMap.find(SwitchID).value().switchred==0x01||SwitchDataMap.find(SwitchID).value().switchOccupy==0x01||SwitchDataMap.find(SwitchID).value().switchwhite==0x01)
+        {
+            MessageListAdd(2,SwitchID,136);
+            STID.clear();
+            return;
         }
-        //道岔解锁
-        if(Sstatus == 0x04)
+    }
+    QStringList STIDlist =STID.split(",");
+    for(int q=0;STIDlist.length();q++)
+    {
+        QString u=STIDlist[q];
+        int w =u.toInt();
+        if(w==NULL)//防止最后一位为空
         {
-            if(0x02 == SwitchDataMap.find(SwitchID).value().switchLock)
-            {
-                return;
-            }
-            else
-            {
-                SwitchDataMap.find(SwitchID).value().switchLock = 0x02;
-                if(at%2==1)
-                {
-                    MessageListAdd(2,SwitchID,67);
-                }
-
-            }
-            continue;
-
-
+            return;
         }
-        if(SwitchDataMap.find(SwitchID).value().SwitchLoss==0x01||SwitchDataMap.find(SwitchID).value().switchLock==0x01)//在道岔失表的或锁闭情况
+        //道岔定位
+         if(Sstatus == 0x01)
         {
-            if(at==1)
+            if(0x00 ==SwitchDataMap.find(w).value().switchPos)//如果是定位就启用
             {
-                MessageListAdd(2,SwitchID,136);
-            }
-            if(at==3)
-            {
-                MessageListAdd(2,SwitchID,136);
-            }
 
-            continue;
+                if(SwitchDataMap.find(w).value().switchStates == 0x01)
+                {
+                    return;
+                }
+                else {
+                    SwitchDataMap.find(w).value().switchStates = 0x01;
+                    MessageListAdd(2,w,60);
+                }
+
+            }
+            else if(0x01 == SwitchDataMap.find(w).value().switchPos)//如果是反位就不启用
+            {
+                if(SwitchDataMap.find(w).value().switchStates == 0x00)
+                {
+                    return;
+                }
+                else SwitchDataMap.find(w).value().switchStates = 0x00;
+            }
         }
-        else
+        //道岔反位
+        if(Sstatus == 0x02)
         {
-
-            //道岔定位
-            if(Sstatus == 0x01)
+              if(0x01 == SwitchDataMap.find(w).value().switchPos)//如果是反位就启用
             {
-                if(0x00 ==SwitchDataMap.find(SwitchID).value().switchPos)//如果是定位就启用
+                if(SwitchDataMap.find(w).value().switchStates == 0x01)
                 {
-                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x01)
-                    {
-                        return;
-                    }
-                    else {
-                        SwitchDataMap.find(SwitchID).value().switchStates = 0x01;
-                        MessageListAdd(2,SwitchID,60);
-                    }
-
+                    return;
                 }
-                else if(0x01 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是反位就不启用
-                {
-                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x00)
-                    {
-                        return;
-                    }
-                    else SwitchDataMap.find(SwitchID).value().switchStates = 0x00;
-                }
+                else {SwitchDataMap.find(w).value().switchStates = 0x01;
+                MessageListAdd(2,w,61);}
             }
-            //道岔反位
-            if(Sstatus == 0x02)
-            {
-                if(0x01 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是反位就启用
-                {
-                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x01)
-                    {
-                        return;
-                    }
-                    else {SwitchDataMap.find(SwitchID).value().switchStates = 0x01;
-                    MessageListAdd(2,SwitchID,61);}
-                }
 
-                else if(0x00 == SwitchDataMap.find(SwitchID).value().switchPos)//如果是定位不启用
+            else if(0x00 == SwitchDataMap.find(w).value().switchPos)//如果是定位不启用
+            {
+                if(SwitchDataMap.find(w).value().switchStates == 0x00)
                 {
-                    if(SwitchDataMap.find(SwitchID).value().switchStates == 0x00)
-                    {
-                        return;
-                    }
-                    else SwitchDataMap.find(SwitchID).value().switchStates = 0x00;
+                    return;
                 }
+                else SwitchDataMap.find(w).value().switchStates = 0x00;
             }
         }
     }
@@ -1499,7 +1795,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
             {
                 sectionid=sqlsectionid.value(0).toString();
                 //如果进路有故障占用，信号机灯丝断无颜色变化，信号灯锁闭的时候，信号机灯丝断丝无颜色变化
-                if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().signalLockStatus==0x01)
+                if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01||SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01||SignalsDataMap.find(SignalID).value().signalLockStatus==0x01)
                 {
                     if(Status==0x01)
                     {
@@ -1536,8 +1832,8 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else
                         {
                             MessageListAdd(3,SignalID,35);
-                            SignalsDataMap.find(SignalID).value().DSStatus=0x02;
-                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x02;
+                            SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
                             return;
                         }
 
@@ -1575,8 +1871,9 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else
                         {
                             MessageListAdd(3,SignalID,36);
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x02;
-                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x02;
+                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
                             return;
                         }
 
@@ -1687,6 +1984,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         if(i==0)
                         {
+//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,33);
                         }
                     }
@@ -1699,22 +1997,22 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus = 0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -1724,7 +2022,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -1734,31 +2032,31 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         if(i==0)
                         {
@@ -1829,41 +2127,42 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
                         {
-                            SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                            SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
-                        if(i==0)
+                        if(i==0)//只执行一次
                         {
+//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,34);
                         }
                     }
@@ -1881,7 +2180,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
@@ -1891,51 +2190,51 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         if(i==0)
                         {
@@ -2045,6 +2344,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         if(i==0)
                         {
+                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,33);
                         }
                     }
@@ -2057,22 +2357,22 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -2082,7 +2382,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -2092,31 +2392,31 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         if(i==0)
                         {
@@ -2222,6 +2522,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         if(i==0)
                         {
+                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,34);
                         }
                     }
@@ -2239,7 +2540,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
@@ -2249,51 +2550,51 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x02;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         if(i==0)
                         {
@@ -2349,7 +2650,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                             SignalsDataMap.find(SignalID).value().DSStatus=0x01;
                             SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
-                        if(i==0)
+                        if(i==0)//信息提示框只显示一次
                         {
                             MessageListAdd(3,SignalID,31);
                         }
@@ -2403,6 +2704,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         if(i==0)
                         {
                             MessageListAdd(3,SignalID,33);
+                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                         }
                     }
                     if(Status==0x03)//清除故障
@@ -2414,22 +2716,22 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -2439,7 +2741,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -2449,31 +2751,31 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         if(i==0)
                         {
@@ -2580,6 +2882,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         if(i==0)
                         {
                             MessageListAdd(3,SignalID,34);
+                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                         }
                     }
                     if(Status==0x06)
@@ -2596,7 +2899,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
@@ -2606,51 +2909,51 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x06;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x09;
                         }
                         if(i==0)
                         {
@@ -2759,6 +3062,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         if(i==0)
                         {
+                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,33);
                         }
                     }
@@ -2771,22 +3075,22 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -2796,7 +3100,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
@@ -2806,31 +3110,31 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
                         }
                         else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().DSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         if(i==0)
                         {
@@ -2936,6 +3240,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         if(i==0)
                         {
+                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,34);
                         }
                     }
@@ -2953,7 +3258,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
@@ -2963,51 +3268,51 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x08;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
                             SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0c;
                         }
                         if(i==0)
                         {
@@ -3117,6 +3422,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                             }
                             if(i==0)
                             {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                                 MessageListAdd(3,SignalID,33);
                             }
                         }
@@ -3294,6 +3600,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                             }
                             if(i==0)
                             {
+                                SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                                 MessageListAdd(3,SignalID,34);
                             }
                         }
@@ -3688,23 +3995,28 @@ void InterLock::DSFY(byte Status)
     while(sqlsignalid.next())
     {
         SignalID=sqlsignalid.value(0).toInt();
-        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-
         QString BeginSignalName;
         QString selectsignalname = QString("select *from signalinfo WHERE signalinfo.SignalID=%1").arg(SignalID);
         QSqlQuery sqlName(selectsignalname);
         while(sqlName.next())
         {
             BeginSignalName=sqlName.value(3).toString();
+
             if(RuleMap.keys().contains(BeginSignalName))
             {
-                for (int i=0;i<RuleMap[BeginSignalName].length();i++)
-                {
+                qDebug()<<RuleMap[BeginSignalName];
                     QString type =RuleMap[BeginSignalName][0];//进路类型
-                    if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
+                    qDebug()<<SignalsDataMap.find(SignalID).value().DSStatus;
+                    if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01||SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                    {
+                        if(SignalsDataMap.find(SignalID).value().signalType==0x03)
+                        {
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x07;
+                        }
+                        else
+                            SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                    }
+                    else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                     {
                         if(type=='1')
                         {
@@ -3726,10 +4038,7 @@ void InterLock::DSFY(byte Status)
                         {
                             SignalsDataMap.find(SignalID).value().signalStatus=0x06;
                         }
-                        MessageListAdd(3,SignalID,39);
                     }
-
-                }
             }
             else
             {
@@ -3740,11 +4049,13 @@ void InterLock::DSFY(byte Status)
                     }
                     else
                         SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                    MessageListAdd(3,SignalID,39);
-
             }
         }
-
+        SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+        SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+        SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+        SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+        MessageListAdd(3,SignalID,39);
     }
 
 }
@@ -3756,35 +4067,41 @@ void InterLock::ZhanYong(byte sectionID)//nameid
     QString id = QString::number(sectionID, 10);
     if(SectionsDataMap.find(id).value().sectionStatus==0x01)
     {
-        MessageListAdd(1,sectionID,7);
+        MessageListAdd(1,sectionID,1);
         SectionsDataMap.find(id).value().sectionStatus=0x02;
     }
     else{
-        MessageListAdd(1,sectionID,1);
+        MessageListAdd(1,sectionID,7);
         SectionsDataMap.find(id).value().sectionStatus=0x01;
     }
+    QList<int> forswithc;
     QString selectSeName =QString("select *from section WHERE section.sectionnameid=%1").arg(id);
     QSqlQuery sqlName(selectSeName);
-
     while(sqlName.next())
     {
         SectionName=sqlName.value(1).toString();
         int sectionforswtich = sqlName.value(4).toInt();
-        if(SwitchDataMap.find(sectionforswtich).value().switchStates == 0x01){
-            if(SwitchDataMap.find(sectionforswtich).value().switchOccupy == 0x01){
-                SwitchDataMap.find(sectionforswtich).value().switchOccupy = 0x02;
+        if(sectionforswtich != NULL){
+            forswithc.append(sectionforswtich);
+        }
+    }
+    for(int i=0; i<forswithc.length();i++){
+        if(SwitchDataMap.find(forswithc[i]).value().switchStates == 0x01){
+            if(SwitchDataMap.find(forswithc[i]).value().switchOccupy == 0x01){
+                SwitchDataMap.find(forswithc[i]).value().switchOccupy = 0x02;
             }else{
-                SwitchDataMap.find(sectionforswtich).value().switchOccupy = 0x01;
+                SwitchDataMap.find(forswithc[i]).value().switchOccupy = 0x01;
             }
         }
     }
+
     QMap<QString,QList<QString>>::iterator ruledata;
      //int i=0;
     for(ruledata = RuleMap.begin();ruledata != RuleMap.end();++ruledata)
     {
         if(ruledata.value()[1].contains(SectionName))
         {
-            QString signalname = ruledata.value()[3];
+            QString signalname = ruledata.key();
             int signalid;
             QString signalsql = QString("select * from signalinfo WHERE SingalName = \"%1\"").arg(signalname);
             QSqlQuery querySignalid(signalsql);
@@ -3796,10 +4113,11 @@ void InterLock::ZhanYong(byte sectionID)//nameid
             {
                 SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
                 SignalsDataMap.find(signalid).value().signalStatus = 0x01;
+                MessageListAdd(3,signalid,30);
             }
             else if(SectionsDataMap.find(id).value().sectionStatus==0x02)
             {
-                SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
+                SignalsDataMap.find(signalid).value().signalLockStatus = 0x02;
             }
         }
         //i++
@@ -3807,16 +4125,24 @@ void InterLock::ZhanYong(byte sectionID)//nameid
 }
 
 //【11操作道岔失表】 √
-void InterLock::SwitchLoss(byte SwitchName)//nameid
+void InterLock::SwitchLoss(byte SwitchName)
 {
     int switchid;
-    QString selectSwitchID = QString("SELECT * from switch where SwitchNameID IN (select SwitchNameID from switch WHERE SwitchName = %1)").arg(SwitchName);
+    int SwitchNameid;
+    QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
-        switchid = sqlSwitchID.value(0).toInt();
+        SwitchNameid = sqlSwitchID.value(5).toInt();
+    }
+    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);
+    QSqlQuery sqlSwitchid(selectSwitchid);
+    while(sqlSwitchid.next())
+    {
+        switchid = sqlSwitchid.value(0).toInt();
         SwitchDataMap.find(switchid).value().SwitchLoss=0x01;
         MessageListAdd(2,switchid,133);
+        //道岔失表后道岔位置会变成定位
         if(0x00 ==SwitchDataMap.find(switchid).value().switchPos)//如果是定位就启用
         {
             SwitchDataMap.find(switchid).value().switchStates = 0x01;
@@ -3832,13 +4158,22 @@ void InterLock::SwitchLoss(byte SwitchName)//nameid
 //【12操作·道岔取消失表】 √
 void InterLock::SwitchNoLoss(byte SwitchName){
     int switchid;
-    QString selectSwitchID = QString("SELECT * from switch where SwitchNameID IN (select SwitchNameID from switch WHERE SwitchName = %1)").arg(SwitchName);
+    int switchID;
+    int SwitchNameid;
+    QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
-        switchid = sqlSwitchID.value(0).toInt();
-        SwitchDataMap.find(switchid).value().SwitchLoss = 0x02;
-        MessageListAdd(2,switchid,134);
+        SwitchNameid = sqlSwitchID.value(5).toInt();
+        switchID = sqlSwitchID.value(0).toInt();
+    }
+    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);
+    QSqlQuery sqlSwitchid(selectSwitchid);
+    while(sqlSwitchid.next())
+    {
+        switchid = sqlSwitchid.value(0).toInt();
+        SwitchDataMap.find(switchid).value().SwitchLoss=0x02;
+        MessageListAdd(2,switchID,134);
     }
 }
 
@@ -3933,6 +4268,101 @@ void InterLock::UnlockState(byte beginSignalID)
            sleep(1000);
         }
         RuleDataMap.remove(beginSignalName);
+    }
+}
+
+//【1测试·模拟行车】
+void InterLock::TestUnlockState(byte beginSignalID)
+{
+    QList<int> OneSwitch = {1,10,15,16,2,23,24,27,28,51,52,9};
+    QString SectionId;
+    QString SectionIdB;
+    QString beginSignalName = QString();
+    QString selectBeginSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
+    QSqlQuery queryBeginSignal(selectBeginSignalStr);
+    while(queryBeginSignal.next())
+    {
+        beginSignalName = queryBeginSignal.value(3).toString();
+    }
+    if(RuleMap.find(beginSignalName).key() != NULL){
+       QString Sections = RuleMap.find(beginSignalName).value()[1];
+       QStringList sectionlist = Sections.split(",");
+       int SwitId;
+       for(int i=0;i<2*sectionlist.length()-1;i++){
+           int n=(i+1)/2;           //修改道岔的占用和锁闭
+           SectionId = SelectIdForName(sectionlist[n]);//目前行车的区段ID
+           SwitId = TestStationSwitchFZ(SectionId,beginSignalName);//目前行车的区段ID所对应地道岔
+           if(n-1>=0)
+           {
+               SectionIdB = SelectIdForName(sectionlist[n-1]);
+           }
+           int NameCount = SelectCountForName(sectionlist[n]);
+           int NameCountB = 0;
+           if(n-1>=0){
+               NameCountB = SelectCountForName(sectionlist[n-1]);
+           }
+           //修改区段的占用和锁闭
+           if(i == 0)
+           {
+               UpdateSectionStatus(SectionId,0x01);
+               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                   UpdateSwitchOccupy(SwitId,0x01);
+               }
+           }
+           else
+           {
+               UpdateSectionStatus(SectionId,0x01);
+               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                   UpdateSwitchOccupy(SwitId,0x01);
+               }
+               if(i % 2 == 0)
+               {
+                   UpdateSectionStatus(SectionIdB,0x02);
+                   UpdateSectionLock(SectionIdB,0x02);
+                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+//                       UpdateSwitchOccupy(SwitId,0x02);//道岔解除占用；
+//                       UpdateSwitchLock(SwitId,0x02);//道岔解除锁闭；
+                       int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
+                       UpdateSwitchLock(SwitIdB,0x02);//联动道岔解除锁闭；
+                       UpdateSwitchOccupy(SwitIdB,0x02);//道岔解除占用；
+                   }
+               }
+               if(i % 2 != 0)
+               {
+                   UpdateSectionStatus(SectionIdB,0x01);
+                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                       int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
+                       if(OneSwitch.contains(SwitIdB)){//如果是非带动道岔，自增一
+                           UpdateSwitchOccupy(SwitIdB,0x01);//道岔被占用；
+                       }
+                   }
+               }
+           }
+           if(i == 2*sectionlist.length()-2){
+                UpdateSectionLock(SectionId,0x02);
+           }
+           //延迟一秒
+           sleep(1000);
+        }
+        RuleDataMap.remove(beginSignalName);
+    }
+}
+
+//【2测试辅助·区段道岔相关】
+int InterLock::TestStationSwitchFZ(QString SectionId,QString beginSignalName){
+    QString switchid;
+    int SwitchName;
+    if(TestStationSwitchDataMap.keys().contains(SectionId)){//如果是有道岔的区段
+         SwitchName = TestStationSwitchDataMap.find(SectionId).value();//查找区段所对应道岔的名字
+         QString SectionSwitchStr = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(SwitchName);
+         QSqlQuery SectionSwitchQuery(SectionSwitchStr);
+         while(SectionSwitchQuery.next())
+         {
+             switchid = SectionSwitchQuery.value(0).toString();
+             if(RuleMap.find(beginSignalName).value()[3].split(",").contains(switchid)){//根据进路中所保存的道岔定反位，选择区段所对应道岔的符合进路定反位的道岔ID
+                return switchid.toInt();
+             }
+         }
     }
 }
 
@@ -4083,50 +4513,50 @@ QByteArray InterLock::switchesStrextract(QString switchesStr)
     for(int i=0; i<switchesSplit.length(); i++)
     {
         QByteArray switchesData;
-        QRegExp rxMethod1(tr("^[\\(](\\d+)/(\\d+)[\\)]$"));//匹配(1/3)类型
+        QRegExp rxMethod1(tr("^[\\(](\\d+)/(\\d+)[\\)]$"));//匹配(1/3)类型，反位
         if(rxMethod1.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod1.cap(1).toInt();
             switchesData[1] = 0x01;
             switchesData[2] = rxMethod1.cap(2).toInt();
             switchesData[3] = 0x01;
         }
-        QRegExp rxMethod2(tr("^(\\d+)/(\\d+)$"));//匹配1/3类型
+        QRegExp rxMethod2(tr("^(\\d+)/(\\d+)$"));//匹配1/3类型，定位
         if(rxMethod2.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod2.cap(1).toInt();
             switchesData[1] = 0x02;
             switchesData[2] = rxMethod2.cap(2).toInt();
             switchesData[3] = 0x02;
         }
-        QRegExp rxMethod3(tr("^[\\(](\\d+)[\\)]$"));//匹配(5)类型
+        QRegExp rxMethod3(tr("^[\\(](\\d+)[\\)]$"));//匹配(5)类型，单边型反位
         if(rxMethod3.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod3.cap(1).toInt();
             switchesData[1] = 0x01;
         }
-        QRegExp rxMethod4(tr("^(\\d+)$"));//匹配5类型
+        QRegExp rxMethod4(tr("^(\\d+)$"));//匹配5类型，单边型反位
         if(rxMethod4.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod4.cap(1).toInt();
             switchesData[1] = 0x02;
         }
-        QRegExp rxMethod5(tr("^[\\[](\\d+)/(\\d+)[\\]]$"));//匹配[1/3]类型 防护到定位
+        QRegExp rxMethod5(tr("^[\\[](\\d+)/(\\d+)[\\]]$"));//匹配[1/3]类型，防护到定位
         if(rxMethod5.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod5.cap(1).toInt();
             switchesData[1] = 0x02;
             switchesData[2] = rxMethod5.cap(2).toInt();
             switchesData[3] = 0x02;
         }
-        QRegExp rxMethod6(tr("^[\\[][\\(](\\d+)/(\\d+)[\\)][\\]]$"));//匹配[(1/3)]类型 防护到方位
+        QRegExp rxMethod6(tr("^[\\[][\\(](\\d+)/(\\d+)[\\)][\\]]$"));//匹配[(1/3)]类型 防护到反位
         if(rxMethod6.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod6.cap(1).toInt();
             switchesData[1] = 0x01;
             switchesData[2] = rxMethod6.cap(2).toInt();
             switchesData[3] = 0x01;
         }
-        QRegExp rxMethod7(tr("^[\\[](\\d+)[\\]]$"));//匹配[5]类型 防护到定位
+        QRegExp rxMethod7(tr("^[\\[](\\d+)[\\]]$"));//匹配[5]类型 单边防护到定位
         if(rxMethod7.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod7.cap(1).toInt();
             switchesData[1] = 0x02;
         }
-        QRegExp rxMethod8(tr("^[\\[][\\(](\\d+)[\\)][\\]]$"));//匹配[(5)]类型 防护到反位
+        QRegExp rxMethod8(tr("^[\\[][\\(](\\d+)[\\)][\\]]$"));//匹配[(5)]类型 单边防护到反位
         if(rxMethod8.exactMatch(switchesSplit[i])) {
             switchesData[0] = rxMethod8.cap(1).toInt();
             switchesData[1] = 0x01;
@@ -4208,15 +4638,15 @@ void InterLock::SwitchWhite(int count,QString SectionName,QByteArray SwitchNameA
        int switchIndex = SwitchNameAndStatus.indexOf(SwitchName.toInt());//区故解道岔地检索号
        QList<int> switchlist = SelectSwitchIdForName(SwitchName);//同道岔名的定反位ID
        if(SwitchNameAndStatus[switchIndex+1].operator == (0x02)){//定位
-           SwitchDataMap.find(switchlist[0]).value().switchwhite = data;//则所经过道岔白光带故障
+           UpdateSwitch(switchlist[0],"switchwhite",data,0x00);
+           //SwitchDataMap.find(switchlist[0]).value().switchwhite = data;//则所经过道岔白光带故障
        }else if(SwitchNameAndStatus[switchIndex+1].operator == (0x01)){//反位
-            SwitchDataMap.find(switchlist[1]).value().switchwhite = data;//则所经过道岔白光带故障
+           UpdateSwitch(switchlist[1],"switchwhite",data,0x00);
+           //SwitchDataMap.find(switchlist[1]).value().switchwhite = data;//则所经过道岔白光带故障
        }
        if(data == 0x02){
-           SwitchDataMap.find(switchlist[0]).value().switchLock = data;//则所经过道岔取消道岔锁闭
-           SwitchDataMap.find(switchlist[1]).value().switchLock = data;//则所经过道岔取消道岔锁闭
-           //SwitchDataMap.find(switchlist[2]).value().switchLock = data;//则所经过联动道岔取消道岔锁闭
-           //SwitchDataMap.find(switchlist[3]).value().switchLock = data;//则所经过联动道岔取消道岔锁闭
+           UpdateSwitch(switchlist[0],"switchLock",data,0x00);
+           UpdateSwitch(switchlist[1],"switchLock",data,0x00);
        }
     }
 }
@@ -4230,17 +4660,39 @@ void InterLock::UpdateSwitchOccupy(int switchid,byte data){
         }else if(data == 0x02){
            MessageListAdd(2,switchid,70);
         }
+        if(switchid == 48 || switchid == 14 || switchid == 46 || switchid == 20){//防护反位
+            if(switchid == 48){
+                SwitchDataMap.find(13).value().switchOccupy = data;//道岔被占用；
+            }else if(switchid == 14){
+                SwitchDataMap.find(47).value().switchOccupy = data;//道岔被占用；
+            }else if(switchid == 46){
+                SwitchDataMap.find(19).value().switchOccupy = data;//道岔被占用；
+            }else if(switchid == 20){
+                SwitchDataMap.find(45).value().switchOccupy = data;//道岔被占用；
+            }
+        }
     }
 }
 
 //【09辅助·修改道岔的锁闭】
 void InterLock::UpdateSwitchLock(int switchid,byte data){
-    if(SwitchDataMap.find(switchid).value().switchLock != data){
-        SwitchDataMap.find(switchid).value().switchLock = data;//道岔被锁闭；
+    if(SwitchDataMap.find(switchid).value().switchRoute != data){
+        SwitchDataMap.find(switchid).value().switchRoute = data;//道岔被锁闭；
         if(data == 0x01){
            MessageListAdd(2,switchid,68);
         }else if(data == 0x02){
            MessageListAdd(2,switchid,71);
+        }
+        if(switchid == 48 || switchid == 14 || switchid == 46 || switchid == 20){//防护反位
+            if(switchid == 48){
+                SwitchDataMap.find(13).value().switchRoute = data;//道岔被占用；
+            }else if(switchid == 14){
+                SwitchDataMap.find(47).value().switchRoute = data;//道岔被占用；
+            }else if(switchid == 46){
+                SwitchDataMap.find(19).value().switchRoute = data;//道岔被占用；
+            }else if(switchid == 20){
+                SwitchDataMap.find(45).value().switchRoute = data;//道岔被占用；
+            }
         }
     }
 }
@@ -4328,14 +4780,25 @@ void InterLock::UpdateSection(QString SectionId,QString Attribute,byte data){
 //【13辅助·根据道岔id修改道岔状态】
 void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switchPos){
     if(Attribute == "switchLock"){//修改道岔锁闭
-        if(SwitchDataMap.find(SwitchId).value().switchLock != data){
-            SwitchDataMap.find(SwitchId).value().switchLock = data;
+        if(SwitchDataMap.find(SwitchId).value().switchRoute != data){
+            SwitchDataMap.find(SwitchId).value().switchRoute = data;
             if(data == 0x01){
                 MessageListAdd(2,SwitchId,62);//道岔锁闭
             }else if(data == 0x02){
                 MessageListAdd(2,SwitchId,71);//道岔解除锁闭
             }else if(data == 0x03){
                 MessageListAdd(2,SwitchId,6);//道岔隐性锁闭
+            }
+            if(SwitchId == 48 || SwitchId == 14 || SwitchId == 46 || SwitchId == 20){//防护反位
+                if(SwitchId == 48){
+                    SwitchDataMap.find(13).value().switchRoute = data;//道岔被占用；
+                }else if(SwitchId == 14){
+                    SwitchDataMap.find(47).value().switchRoute = data;//道岔被占用；
+                }else if(SwitchId == 46){
+                    SwitchDataMap.find(19).value().switchRoute = data;//道岔被占用；
+                }else if(SwitchId == 20){
+                    SwitchDataMap.find(45).value().switchRoute = data;//道岔被占用；
+                }
             }
         }
     }else if(Attribute == "switchStates"){//修改道岔定反位
@@ -4386,6 +4849,17 @@ void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switc
             }else if(data == 0x02){
                 MessageListAdd(2,SwitchId,70);//道岔解除占用
             }
+            if(SwitchId == 48 || SwitchId == 14 || SwitchId == 46 || SwitchId == 20){//防护反位
+                if(SwitchId == 48){
+                    SwitchDataMap.find(13).value().switchOccupy = data;//道岔被占用；
+                }else if(SwitchId == 14){
+                    SwitchDataMap.find(47).value().switchOccupy = data;//道岔被占用；
+                }else if(SwitchId == 46){
+                    SwitchDataMap.find(19).value().switchOccupy = data;//道岔被占用；
+                }else if(SwitchId == 20){
+                    SwitchDataMap.find(45).value().switchOccupy = data;//道岔被占用；
+                }
+            }
         }
     }else if(Attribute == "switchred"){//修改道岔红光带故障
         if(SwitchDataMap.find(SwitchId).value().switchred != data){
@@ -4418,6 +4892,20 @@ void InterLock::TimerTicked()
     QByteArray data2 = SwitchEncapsalutation();
     udpSocket->writeDatagram(data2,QHostAddress("127.0.0.1"),4403);
 }
+
+//【测试·道岔区段相关初始化】
+void InterLock::TestStationSwitch(){
+    QString sectionid;
+    int switchname;
+    QSqlQuery query("SELECT * FROM section_switch");
+    while (query.next())
+    {
+        sectionid = query.value(2).toString();
+        switchname = query.value(1).toInt();
+        TestStationSwitchDataMap[query.value(2).toString()] = switchname;
+    }
+}
+
 //设置信号机
 void InterLock::SetupSignal(byte SignalID,byte signalStatus)
 {
@@ -4425,7 +4913,7 @@ void InterLock::SetupSignal(byte SignalID,byte signalStatus)
     SignalsDataMap.find(SignalID).value().signalStatus = signalStatus;
 }
 
-//全站区段信息缓存
+//全站区段信息初始化
 void InterLock::SectionDataCache()
 {
     SectionData sectioData;
@@ -4446,7 +4934,7 @@ void InterLock::SectionDataCache()
     }
 }
 
-//全站区段信息封装
+//全站区段信息发送
 QByteArray InterLock::SectionEncapsalutation()
 {
     QByteArray frameHead("\x10\x00\x00\x00\x00\x10\x10\x01\x4a\x98\x07\x00",12);
@@ -4488,7 +4976,7 @@ QByteArray InterLock::SectionEncapsalutation()
     return SectionDataInfo;
 }
 
-//全站信号机信息缓存
+//全站信号机信息初始化
 void InterLock::SignalDataCache()
 {
     SignalData signalData;
@@ -4509,7 +4997,7 @@ void InterLock::SignalDataCache()
     }
 }
 
-//全站信号机信息封装
+//全站信号机信息发送
 QByteArray InterLock::SignalEncapsalutation()
 {
     QByteArray signalInitData;
@@ -4534,7 +5022,7 @@ QByteArray InterLock::SignalEncapsalutation()
     return signalInitData;
 }
 
-//全站道岔信息缓存
+//全站道岔信息初始化
 void InterLock::SwitchDataCache()
 {
     SwitchData switchData;
@@ -4552,11 +5040,12 @@ void InterLock::SwitchDataCache()
         switchData.SwitchLoss          =0x02;                               //道岔失表 1为失表 2为正常
         switchData.switchred           =0x02;                               //道岔红光带故障  1为故障 2清除故障
         switchData.switchwhite         =0x02;                               //道岔白光带故障  1为故障 2清除故障
+        switchData.switchRoute         =0x02;                               //道岔进路状态  1为进路 2无进路
         SwitchDataMap[querySwitch.value(0).toInt()] = switchData;
     }
 }
 
-//全站道岔信息封装
+//全站道岔信息发送
 QByteArray InterLock::SwitchEncapsalutation()
 {
     QByteArray switchInitData;
@@ -4567,7 +5056,7 @@ QByteArray InterLock::SwitchEncapsalutation()
     QByteArray frameHead("\x10\x00\x00\x00\x00\x12\x10\x01\x4a\x98\x07\x00",12);
     QByteArray frameEnd("\x59\x4F\x44\x4F",4);
     byte switchNr = SwitchDataMap.count();
-    frameHead[1] = (switchNr*11)+5;
+    frameHead[1] = (switchNr*12)+5;
     frameHead[11] = switchNr;
     switchInitData.append(frameHead);
     for(it = SwitchDataMap.begin();it != SwitchDataMap.end();++it)
@@ -4580,51 +5069,12 @@ QByteArray InterLock::SwitchEncapsalutation()
     return switchInitData;
 }
 
-//进路规则信息缓存
-void InterLock::RuleDataCache()
-{
-    LineRuleData LineruleData;
-    QSqlQuery queryRule("select * from linerule");
-    while(queryRule.next())
-    {
-        LineruleData.lineruleID           = queryRule.value(0).toInt();
-        LineruleData.beginSignalName      = queryRule.value(1).toInt();
-        LineruleData.endSignalName        = queryRule.value(2).toInt();
-        LineruleData.Type                 = queryRule.value(3).toInt();
-        LineruleData.First                = queryRule.value(4).toInt();
-        RuleDataMap[queryRule.value(0).toString()] = LineruleData;
-    }
-}
-
-//进路规则信息封装
-QByteArray InterLock::RuleEncapsalutation()
-{
-    QByteArray ruleInitData;
-    QByteArray ruleDataInfo;
-    LineRuleData LineruleData;int i = 0;
-    QMap<QString,LineRuleData>::iterator it;
-    ruleDataInfo.resize(58*sizeof(LineruleData));
-    QByteArray frameHead("\x10\x00\x00\x00\x00\x12\x10\x01\x4a\x98\x07\x00",12);
-    QByteArray frameEnd("\x59\x4F\x44\x4F",4);
-    byte ruleNr = RuleDataMap.count();
-    frameHead[1] = (ruleNr*5)+5;
-    frameHead[11] = ruleNr;
-    ruleInitData.append(frameHead);
-    for(it = RuleDataMap.begin();it != RuleDataMap.end();++it)
-    {
-        memcpy(ruleDataInfo.data()+i*sizeof(it.value()),&it.value(),sizeof(it.value()));
-        i++;
-    }
-    ruleInitData.append(ruleDataInfo);
-    ruleInitData.append(frameEnd);
-    return ruleInitData;
-}
-
+//按钮1
 void InterLock::on_pushButton_clicked()
 {
     //SetupRoute(1,8);
 }
-
+//按钮2
 void InterLock::on_pushButton_2_clicked()
 {
     //RemoveRoute(1,1);

@@ -49,6 +49,7 @@ struct SwitchData
     byte switchOccupy;                          //占用状态 01为占用 02为空闲
     byte switchred;                             //红光带故障
     byte switchwhite;                           //白光带故障
+    byte switchRoute;                           //道岔进路状态
 };//道岔信息封装
 
 struct LineRuleData
@@ -106,14 +107,11 @@ public:
     byte direction;
 
     void SectionDataCache();
-
     void SignalDataCache();
     void SwitchDataCache();
-    void RuleDataCache();
     QByteArray SectionEncapsalutation();
     QByteArray SignalEncapsalutation();
     QByteArray SwitchEncapsalutation();
-    QByteArray RuleEncapsalutation();
     QByteArray switchesStrextract(QString switchesStr);
     QString SelectIdForName(QString Name);
     int SelectCountForName(QString Name);
@@ -136,7 +134,10 @@ public:
      * {参数四switchPos道岔定反位}
      */
     void UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switchPos);
-
+    void TestUnlockState(byte beginSignalID);//【1测试·模拟行车】
+    void TestStationSwitch();//【2测试·区段道岔相关】
+    QMap<QString,int> TestStationSwitchDataMap;//【2测试·区段道岔相关】（key是sectionid,value是switchname）
+    int TestStationSwitchFZ(QString SectionId,QString beginSignalName);//【2辅助·区段道岔相关】
     //功能方法
     void ShangDian();//上电解锁
     void InLine(byte beginSignalID,byte endSignalID,int type);//进路设置:type=1正常进路;type=2引导进路
@@ -193,6 +194,7 @@ private:
     QMap<QString,QString> LockRouteMap;//锁闭线路
     QMap<QString,QString> LockSwitchMap;//锁闭道岔
     QMap<QString,QList<QString>> RuleMap;//进路记录,键为
+    QMap<QString,QList<QString>> RuleMap1;//进路记录,键为
 
     QMap<int,SwitchData> SwitchDataMap;//道岔信息封装
     QMap<QString,LineRuleData> RuleDataMap;//进路规则封装
