@@ -136,7 +136,9 @@ public:
     void UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switchPos);
     void TestUnlockState(byte beginSignalID);//【1测试·模拟行车】
     void TestStationSwitch();//【2测试·区段道岔相关】
-    QMap<QString,int> TestStationSwitchDataMap;//【2测试·区段道岔相关】（key是sectionid,value是switchname）
+    QMap<QString,int> StationSwitchDataMap;//【辅助①·区段id和道岔名字相关】（key是sectionid,value是switchname）
+    QMap<int,QString> SwitchStationDataMap;//【辅助②·区段id和道岔名字相关】（key是switchname,value是sectionid）
+    QMap<QString,QString> StationIdNameDataMap;//【辅助③·区段id和名字相关】（key是sectionname,value是sectionid）
     int TestStationSwitchFZ(QString SectionId,QString beginSignalName);//【2辅助·区段道岔相关】
     //功能方法
     void ShangDian();//上电解锁

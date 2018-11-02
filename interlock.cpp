@@ -288,10 +288,8 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 int switchname = YDnum[k];//进路途径地道岔名字,1反位，2定位
                 switchnameYD = QString::number(switchname, 10);
                 QList<int> switchidlist = SelectSwitchIdForName(switchnameYD);
-                int OneK = YDnum[k+1]-1;
-                int TwoK = YDnum[k+1];
-                if(SwitchDataMap.find(switchidlist[0]).value().switchStates != OneK || TwoK != 0x02){
-                    if(SwitchDataMap.find(switchidlist[1]).value().switchStates != TwoK || TwoK != 0x01){
+                if(SwitchDataMap.find(switchidlist[0]).value().switchStates != 0x01 || YDnum[k+1].operator != (0x02)){
+                    if(SwitchDataMap.find(switchidlist[1]).value().switchStates != 0x01 || YDnum[k+1].operator != (0x01)){
                         break;
                     }
                 }
@@ -325,14 +323,14 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
             {
                 switchid = queryswitch.value(0).toInt();
                 //----------------【判断条件7】道岔被锁闭，且定反位与进路需求不一致----------------
-                //如果进路要求道岔定位，但是道岔是反位，且道岔被锁闭，则进路无效
-                if((num[k+1]+0) == 2 && SwitchDataMap.find(switchid).value().switchPos == 0x01 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
-                    MessageListAdd(2,switchid,130);
+                //如果进路要求道岔定位，但是道岔是反位，且道岔被进路，则进路无效
+                if((num[k+1]+0) == 2 && SwitchDataMap.find(switchid).value().switchPos == 0x01 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchRoute == 0x01){
+                    MessageListAdd(2,switchid,135);
                     return;
                 }
-                //如果进路要求道岔反位，但是道岔是定位，且道岔被锁闭，则进路无效
-                if((num[k+1]+0) == 1 && SwitchDataMap.find(switchid).value().switchPos == 0x00 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
-                    MessageListAdd(2,switchid,130);
+                //如果进路要求道岔反位，但是道岔是定位，且道岔被进路，则进路无效
+                if((num[k+1]+0) == 1 && SwitchDataMap.find(switchid).value().switchPos == 0x00 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchRoute == 0x01){
+                    MessageListAdd(2,switchid,135);
                     return;
                 }
                 //----------------【判断条件8】道岔失表----------------：
@@ -343,6 +341,11 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 //----------------【判断条件9】道岔封锁----------------：
                 if(SwitchDataMap.find(switchid).value().blockStatus == 0x01){
                     MessageListAdd(2,switchid,132);
+                    return;
+                }
+                //----------------【判断条件10】道岔锁闭----------------：
+                if(SwitchDataMap.find(switchid).value().switchLock == 0x01){
+                    MessageListAdd(2,switchid,130);
                     return;
                 }
             }
@@ -973,6 +976,10 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
             int switchname = num[k];
             for(switchit = SwitchDataMap.begin();switchit != SwitchDataMap.end();++switchit)
             {
+                QString sectionIdForSwitch = SwitchStationDataMap.find(switchit.value().switchName).value();
+                if(SectionsDataMap.find(sectionIdForSwitch).value().LockStatus == 0x01){
+                    continue;
+                }
                 if(num[k+1].operator == (0x01)){//反位
                     if(switchit.value().switchName == switchname && switchit.value().switchPos == 1){
                         if(type == 1)
@@ -1013,6 +1020,7 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
         }
         swIt++;
     }
+
     if(sectionremove == true && switchremove == true){
 
         if(SignalsDataMap.find(beginSignalID).value().signalType==0x03)
@@ -4127,6 +4135,56 @@ void InterLock::ZhanYong(byte sectionID)//nameid
 //【11操作道岔失表】 √
 void InterLock::SwitchLoss(byte SwitchName)
 {
+    bool Rute = false;//默认失表道岔未有进路
+    QMap<QString,QList<QString>> ::iterator it;
+    for(it = RuleMap.begin();it != RuleMap.end();++it)//判断失表道岔是否在进路之中
+    {
+        QStringList sectionlist = it.value()[1].split(",");
+        QString SectionIdForName;
+        int SwitchNameForRule;
+        foreach (QString OneSection, sectionlist) {//循环所有进路区段
+            SectionIdForName = StationIdNameDataMap.find(OneSection).value();//区段对应地区段名字ID
+            if(StationSwitchDataMap.keys().contains(SectionIdForName)){//如果进路区段有分轨
+                SwitchNameForRule = StationSwitchDataMap.find(SectionIdForName).value();
+                QString sectionid = SwitchStationDataMap.find(SwitchNameForRule).value();
+                QList<int> SwitchNames;
+                QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1)").arg(SwitchNameForRule);
+                QSqlQuery sqlSwitchNames(querySwitchNames);
+                while(sqlSwitchNames.next())
+                {
+                   int SName = sqlSwitchNames.value(1).toInt();
+                   if(!SwitchNames.contains(SName)){
+                       SwitchNames.append(SName);
+                   }
+                }
+                if(SwitchNames.count() == 1 && SwitchNames[0] == SwitchName){
+                    SectionsDataMap.find(sectionid).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
+                    SectionsDataMap.find(sectionid).value().LockStatus = 0x02;//并解除锁闭
+                }else if(SwitchNames.count()>1){
+                    if(SwitchNames[0] == SwitchName || SwitchNames[1] == SwitchName){
+                        QList<int> SwitchNames;
+                        QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1)").arg(SwitchName);
+                        QSqlQuery sqlSwitchNames(querySwitchNames);
+                        while(sqlSwitchNames.next())
+                        {
+                           int SName = sqlSwitchNames.value(1).toInt();
+                           if(!SwitchNames.contains(SName)){
+                               SwitchNames.append(SName);
+                           }
+                        }
+                        SectionsDataMap.find(sectionid).value().SectionWhiteObstacle = 0x03;//失表绿光带(主轨绿光带，分轨正常)
+                        SectionsDataMap.find(sectionid).value().LockStatus = 0x02;//并解除锁闭
+                    }else{
+                        break;
+                    }
+                }
+                Rute = true;
+            }else{
+                SectionsDataMap.find(SectionIdForName).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
+                SectionsDataMap.find(SectionIdForName).value().LockStatus = 0x02;//并解除锁闭
+            }
+        }
+    }
     int switchid;
     int SwitchNameid;
     QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
@@ -4135,17 +4193,21 @@ void InterLock::SwitchLoss(byte SwitchName)
     {
         SwitchNameid = sqlSwitchID.value(5).toInt();
     }
-    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);
+    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);//查询操作道岔联动地所有道岔
     QSqlQuery sqlSwitchid(selectSwitchid);
     while(sqlSwitchid.next())
     {
         switchid = sqlSwitchid.value(0).toInt();
-        SwitchDataMap.find(switchid).value().SwitchLoss=0x01;
+        SwitchDataMap.find(switchid).value().SwitchLoss=0x01;//将失表道岔和联动道岔全部失表
+        if(Rute == true){//如果有进路
+            SwitchDataMap.find(switchid).value().switchRoute=0x02;//失表道岔解除进路锁闭
+        }
         MessageListAdd(2,switchid,133);
         //道岔失表后道岔位置会变成定位
         if(0x00 ==SwitchDataMap.find(switchid).value().switchPos)//如果是定位就启用
         {
             SwitchDataMap.find(switchid).value().switchStates = 0x01;
+            SwitchDataMap.find(switchid).value().switchwhite = 0x01;
         }
         else if(0x01 == SwitchDataMap.find(switchid).value().switchPos)//如果是反位就不启用
         {
@@ -4177,7 +4239,7 @@ void InterLock::SwitchNoLoss(byte SwitchName){
     }
 }
 
-//【13操作·模拟行车】
+//【13操作·模拟行车】——作废
 void InterLock::UnlockState(byte beginSignalID)
 {
     QStringList OneSwitch = {"1","10","15","16","2","23","24","27","28","51","52","9"};
@@ -4271,7 +4333,7 @@ void InterLock::UnlockState(byte beginSignalID)
     }
 }
 
-//【1测试·模拟行车】
+//【1测试·模拟行车】——应用
 void InterLock::TestUnlockState(byte beginSignalID)
 {
     QList<int> OneSwitch = {1,10,15,16,2,23,24,27,28,51,52,9};
@@ -4352,8 +4414,8 @@ void InterLock::TestUnlockState(byte beginSignalID)
 int InterLock::TestStationSwitchFZ(QString SectionId,QString beginSignalName){
     QString switchid;
     int SwitchName;
-    if(TestStationSwitchDataMap.keys().contains(SectionId)){//如果是有道岔的区段
-         SwitchName = TestStationSwitchDataMap.find(SectionId).value();//查找区段所对应道岔的名字
+    if(StationSwitchDataMap.keys().contains(SectionId)){//如果是有道岔的区段
+         SwitchName = StationSwitchDataMap.find(SectionId).value();//查找区段所对应道岔的名字
          QString SectionSwitchStr = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(SwitchName);
          QSqlQuery SectionSwitchQuery(SectionSwitchStr);
          while(SectionSwitchQuery.next())
@@ -4617,11 +4679,11 @@ void InterLock::MessageListAdd(int type,int id,int messageid){
     MessageList.append(messageid);
 }
 
-//【06辅助·根据名字查询区段是否有分轨】
+//【06辅助·根据名字查询道岔的ID】
 QList<int> InterLock::SelectSwitchIdForName(QString Name){
     int switchid;
     QList<int> switchforname;
-    QString SectionIdSql = QString("SELECT * FROM switch WHERE SwitchName = %1").arg(Name);
+    QString SectionIdSql = QString("SELECT * FROM switch WHERE SwitchName = %1 ORDER BY SwitchID+0").arg(Name);
     QSqlQuery querySectionId(SectionIdSql);
     while(querySectionId.next())//占用区段地分轨数量
     {
@@ -4902,7 +4964,16 @@ void InterLock::TestStationSwitch(){
     {
         sectionid = query.value(2).toString();
         switchname = query.value(1).toInt();
-        TestStationSwitchDataMap[query.value(2).toString()] = switchname;
+        StationSwitchDataMap[query.value(2).toString()] = switchname;
+        SwitchStationDataMap[query.value(1).toInt()] = sectionid;
+    }
+    QString Id;
+
+    QSqlQuery queryB("SELECT * FROM sectioninfo");
+    while (queryB.next())
+    {
+        Id = queryB.value(0).toString();
+        StationIdNameDataMap[queryB.value(1).toString()] = Id;
     }
 }
 
