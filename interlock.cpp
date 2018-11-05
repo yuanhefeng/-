@@ -1232,7 +1232,6 @@ void InterLock::FengSuo(byte Id,byte Type)
 //【05操作·区故解】√
 void InterLock::QuGJ(byte Snum)
 {
-    QMap<QString,QList<QString>> test = RuleMap1;
     QString sectionname;//声明①——需要区故解区段名字
     QString SectionId;//声明②——区故解区段ID
     QString SectionIdAdd;//声明③——区故解下一个区段ID
@@ -1251,7 +1250,7 @@ void InterLock::QuGJ(byte Snum)
     QString sectioncache2;
     QStringList sectionvalue;
     QStringList NameList1;
-//    QList<QString>heihei1;
+    bool haveRule = false;
     //根据区段的nameid查找到区段名字
     QString selectsid = QString("select * from section WHERE section.sectionnameid = %1").arg(Snum);
     QSqlQuery queryid(selectsid);
@@ -1329,182 +1328,198 @@ void InterLock::QuGJ(byte Snum)
     }
    //循环所有进路
     QMap<QString,QList<QString>> ::iterator it;
-    for(it = RuleMap.begin();it != RuleMap.end();++it)
-    {
-        //如果该条进路的区段字符串拼接中包含需要区故解的区段
-        if(it.value()[1].contains(sectionname)){
-            beginsignalname = it.key();
-            QString selectsignalid = QString("SELECT *from signalinfo WHERE signalinfo.SingalName=\"%1\"").arg(beginsignalname);
-            QSqlQuery sqlsignalid(selectsignalid);
-            while(sqlsignalid.next())
-            {//区故解该进路信号灯变红
-                signalid=sqlsignalid.value(0).toInt();
-                if(RuleMap.find(beginsignalname).value()[0]=='4')
-                {
-                    SignalsDataMap.find(signalid).value().signalStatus=0x07;
+    if(!RuleMap.isEmpty()){
+        for(it = RuleMap.begin();it != RuleMap.end();++it)
+        {
+            //如果该条进路的区段字符串拼接中包含需要区故解的区段
+            if(it.value()[1].contains(sectionname)){
+                beginsignalname = it.key();
+                QString selectsignalid = QString("SELECT *from signalinfo WHERE signalinfo.SingalName=\"%1\"").arg(beginsignalname);
+                QSqlQuery sqlsignalid(selectsignalid);
+                while(sqlsignalid.next())
+                {//区故解该进路信号灯变红
+                    signalid=sqlsignalid.value(0).toInt();
+                    if(RuleMap.find(beginsignalname).value()[0]=='4')
+                    {
+                        SignalsDataMap.find(signalid).value().signalStatus=0x07;
+                    }
+                    else SignalsDataMap.find(signalid).value().signalStatus=0x01;
                 }
-                else SignalsDataMap.find(signalid).value().signalStatus=0x01;
-            }
-            QByteArray SwitchNameAndStatus = switchesStrextract(it.value()[2]);//声明⑦——需要区故解地进路中地所有道岔名字+定反位
-            QStringList NameList = it.value()[1].split(",");//声明⑧——需要区故解地进路中地所有区段名字
-            i = NameList.indexOf(sectionname);//区故解区段在进路锁闭区段中地检索号。
-            int len = NameList.length();//进路锁闭区段地数量。
-            SectionId = SelectIdForName(NameList[i]);
-            SectionIdCount = SelectCountForName(NameList[i]);
-            if(i<=NameList.length()-2){//如果区故解地不是最后一个区段
-                SectionIdAdd = SelectIdForName(NameList[i+1]);
-                SectionIdAddCount = SelectCountForName(NameList[i+1]);
-            }
-            if(i>0){//如果区故解地不是第一个区段
-                SectionIdReduce = SelectIdForName(NameList[i-1]);
-                SectionIdReduceCount = SelectCountForName(NameList[i-1]);
-            }
-            QMap<QString,SectionData>::iterator itsec = SectionsDataMap.find(SectionId);
-            //如果进路中发现该区段白光带故障,或锁闭状态
-            if(itsec.value().SectionWhiteObstacle == 0x01 || itsec.value().LockStatus == 0x01)
-            {
-                SwitchWhite(SectionIdCount,sectionname,SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                SectionsDataMap.find(SectionId).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                SectionsDataMap.find(SectionId).value().LockStatus = 0x02;//取消该区段的锁闭状态
-                if(len>3)
-                {
-                    //第一个区段故障
-                    if(i == 0)
-                    {
-                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                    }
-                    //第二个区段故障
-                    else if(i == 1){
-                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                        SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x02;//连带取消第一个区段地白光带故障
-                        SectionsDataMap.find(SectionIdReduce).value().LockStatus = 0x02;//连带取消第一个区段地锁闭状态
-                        SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                    }
-                    //如果是最后一段区段故障
-                    else if(i == len-1)
-                    {
-                        for(int j=i-1;j>=0;j--)
-                        {
-                            QString SectionIdJ = SelectIdForName(NameList[j]);
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
-                            }else{
-                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                                int SectionIdCountJ = SelectCountForName(NameList[j]);
-                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                            }
-                        }
-                    }
-                    //如果是倒数第二段区段故障
-                    else if(len>2 && i == len-2)
-                    {
-                        for(int j=i-1;j>=0;j--)
-                        {
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                            SectionsDataMap.find(SectionIdAdd).value().LockStatus = 0x02;//取消该区段的锁闭状态
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                            QString SectionIdJ = SelectIdForName(NameList[j]);
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
-                            }else{
-                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                                int SectionIdCountJ = SelectCountForName(NameList[j]);
-                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                            }
-                        }
-                    }
-                    //如果是进路中的中间区段
-                    else if(i>0 && i<len-1)
-                    {
-                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                        for(int j=i-1;j>=0;j--)
-                        {
-                            QString SectionIdJ = SelectIdForName(NameList[j]);
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
-                            }else{
-                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                                int SectionIdCountJ = SelectCountForName(NameList[j]);
-                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                            }
-                        }
-                    }
-
+                QByteArray SwitchNameAndStatus = switchesStrextract(it.value()[2]);//声明⑦——需要区故解地进路中地所有道岔名字+定反位
+                QStringList NameList = it.value()[1].split(",");//声明⑧——需要区故解地进路中地所有区段名字
+                i = NameList.indexOf(sectionname);//区故解区段在进路锁闭区段中地检索号。
+                int len = NameList.length();//进路锁闭区段地数量。
+                SectionId = SelectIdForName(NameList[i]);
+                SectionIdCount = SelectCountForName(NameList[i]);
+                if(i<=NameList.length()-2){//如果区故解地不是最后一个区段
+                    SectionIdAdd = SelectIdForName(NameList[i+1]);
+                    SectionIdAddCount = SelectCountForName(NameList[i+1]);
                 }
-                else if(len==3)
+                if(i>0){//如果区故解地不是第一个区段
+                    SectionIdReduce = SelectIdForName(NameList[i-1]);
+                    SectionIdReduceCount = SelectCountForName(NameList[i-1]);
+                }
+                QMap<QString,SectionData>::iterator itsec = SectionsDataMap.find(SectionId);
+                //如果进路中发现该区段白光带故障,或锁闭状态
+                if(itsec.value().SectionWhiteObstacle == 0x01 || itsec.value().LockStatus == 0x01)
                 {
-                    if(i==0)
+                    SwitchWhite(SectionIdCount,sectionname,SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                    SectionsDataMap.find(SectionId).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
+                    SectionsDataMap.find(SectionId).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                    if(len>3)
                     {
-                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                        //第一个区段故障
+                        if(i == 0)
                         {
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                    }
-                    if(i==1)
-                    {
-                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
-                        {
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                        SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;
-                        SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);
-                    }
-                    if(i==2)
-                    {
-                        for(int j=i-1;j>=0;j--)
-                        {
-                            QString SectionIdJ = SelectIdForName(NameList[j]);
-                            QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
-                            if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02)
-                            {//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
-                                continue;
+                            if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
-                            else
+                        }
+                        //第二个区段故障
+                        else if(i == 1){
+                            if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                            SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x02;//连带取消第一个区段地白光带故障
+                            SectionsDataMap.find(SectionIdReduce).value().LockStatus = 0x02;//连带取消第一个区段地锁闭状态
+                            SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                        }
+                        //如果是最后一段区段故障
+                        else if(i == len-1)
+                        {
+                            for(int j=i-1;j>=0;j--)
                             {
-                                itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
-                                int SectionIdCountJ = SelectCountForName(NameList[j]);
-                                SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                                QString SectionIdJ = SelectIdForName(NameList[j]);
+                                QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                                if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                    continue;
+                                }else{
+                                    itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                    int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                    SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                                }
+                            }
+                        }
+                        //如果是倒数第二段区段故障
+                        else if(len>2 && i == len-2)
+                        {
+                            for(int j=i-1;j>=0;j--)
+                            {
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
+                                SectionsDataMap.find(SectionIdAdd).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
+                                QString SectionIdJ = SelectIdForName(NameList[j]);
+                                QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                                if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                    continue;
+                                }else{
+                                    itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                    int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                    SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                                }
+                            }
+                        }
+                        //如果是进路中的中间区段
+                        else if(i>0 && i<len-1)
+                        {
+                            if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                            for(int j=i-1;j>=0;j--)
+                            {
+                                QString SectionIdJ = SelectIdForName(NameList[j]);
+                                QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                                if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02){//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                    continue;
+                                }else{
+                                    itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                    int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                    SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                                }
+                            }
+                        }
+
+                    }
+                    else if(len==3)
+                    {
+                        if(i==0)
+                        {
+                            if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                            {
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                        }
+                        if(i==1)
+                        {
+                            if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                            {
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;
+                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);
+                        }
+                        if(i==2)
+                        {
+                            for(int j=i-1;j>=0;j--)
+                            {
+                                QString SectionIdJ = SelectIdForName(NameList[j]);
+                                QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
+                                if(itsec1.value().LockStatus == 0x02 && itsec1.value().SectionWhiteObstacle == 0x02)
+                                {//如果区故解区段之前的区段已经被区故解（即无锁闭且无白光带故障）
+                                    continue;
+                                }
+                                else
+                                {
+                                    itsec1.value().SectionWhiteObstacle = 0x01;//且前面的区段全部变成白光带故障
+                                    int SectionIdCountJ = SelectCountForName(NameList[j]);
+                                    SwitchWhite(SectionIdCountJ,NameList[j],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                                }
+                            }
+                        }
+                    }
+                    else if(len==2)
+                    {
+                        if(i==0)
+                        {
+                            if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
+                            {
+                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                                SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
+                            }
+                        }
+                        if(i==1)
+                        {
+                            if(SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdReduce).value().LockStatus != 0x02)
+                            {
+                                SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x01;//上一位区段变成白光带故障
+                                SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
                         }
                     }
                 }
-                else if(len==2)
-                {
-                    if(i==0)
-                    {
-                        if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
-                        {
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
-                            SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                    }
-                    if(i==1)
-                    {
-                        if(SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdReduce).value().LockStatus != 0x02)
-                        {
-                            SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x01;//上一位区段变成白光带故障
-                            SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
-                        }
-                    }
-                }
+
+               haveRule = true;
             }
-
         }
-
+    }
+    if(haveRule == false){
+        int test1 = Snum;
+        QString Id = QString::number(test1, 10);
+        SectionsDataMap.find(Id).value().SectionWhiteObstacle = 0x00;
+        SectionsDataMap.find(Id).value().LockStatus = 0x00;
+        int SwtichName = StationSwitchDataMap.find(Id).value();
+        QString name = QString::number(SwtichName, 10);
+        if(!SelectSwitchIdForName(name).isEmpty()){
+            SwitchDataMap.find(SelectSwitchIdForName(name)[0]).value().switchRoute = 0x00;
+            SwitchDataMap.find(SelectSwitchIdForName(name)[1]).value().switchRoute = 0x00;
+            SwitchDataMap.find(SelectSwitchIdForName(name)[0]).value().switchwhite = 0x00;
+            SwitchDataMap.find(SelectSwitchIdForName(name)[1]).value().switchwhite = 0x00;
+        }
     }
     if(sectioncache2.isEmpty())
     {
@@ -4135,86 +4150,116 @@ void InterLock::ZhanYong(byte sectionID)//nameid
 //【11操作道岔失表】 √
 void InterLock::SwitchLoss(byte SwitchName)
 {
-    bool Rute = false;//默认失表道岔未有进路
-    QMap<QString,QList<QString>> ::iterator it;
-    for(it = RuleMap.begin();it != RuleMap.end();++it)//判断失表道岔是否在进路之中
-    {
-        QStringList sectionlist = it.value()[1].split(",");
-        QString SectionIdForName;
-        int SwitchNameForRule;
-        foreach (QString OneSection, sectionlist) {//循环所有进路区段
-            SectionIdForName = StationIdNameDataMap.find(OneSection).value();//区段对应地区段名字ID
-            if(StationSwitchDataMap.keys().contains(SectionIdForName)){//如果进路区段有分轨
-                SwitchNameForRule = StationSwitchDataMap.find(SectionIdForName).value();
-                QString sectionid = SwitchStationDataMap.find(SwitchNameForRule).value();
-                QList<int> SwitchNames;
-                QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1)").arg(SwitchNameForRule);
-                QSqlQuery sqlSwitchNames(querySwitchNames);
-                while(sqlSwitchNames.next())
-                {
-                   int SName = sqlSwitchNames.value(1).toInt();
-                   if(!SwitchNames.contains(SName)){
-                       SwitchNames.append(SName);
-                   }
-                }
-                if(SwitchNames.count() == 1 && SwitchNames[0] == SwitchName){
-                    SectionsDataMap.find(sectionid).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
-                    SectionsDataMap.find(sectionid).value().LockStatus = 0x02;//并解除锁闭
-                }else if(SwitchNames.count()>1){
-                    if(SwitchNames[0] == SwitchName || SwitchNames[1] == SwitchName){
-                        QList<int> SwitchNames;
-                        QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1)").arg(SwitchName);
-                        QSqlQuery sqlSwitchNames(querySwitchNames);
-                        while(sqlSwitchNames.next())
-                        {
-                           int SName = sqlSwitchNames.value(1).toInt();
-                           if(!SwitchNames.contains(SName)){
-                               SwitchNames.append(SName);
-                           }
-                        }
-                        SectionsDataMap.find(sectionid).value().SectionWhiteObstacle = 0x03;//失表绿光带(主轨绿光带，分轨正常)
-                        SectionsDataMap.find(sectionid).value().LockStatus = 0x02;//并解除锁闭
-                    }else{
-                        break;
-                    }
-                }
-                Rute = true;
-            }else{
-                SectionsDataMap.find(SectionIdForName).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
-                SectionsDataMap.find(SectionIdForName).value().LockStatus = 0x02;//并解除锁闭
-            }
-        }
-    }
-    int switchid;
-    int SwitchNameid;
-    QString selectSwitchID = QString("select *from switch WHERE SwitchName =%1").arg(SwitchName);
-    QSqlQuery sqlSwitchID(selectSwitchID);
-    while(sqlSwitchID.next())
-    {
-        SwitchNameid = sqlSwitchID.value(5).toInt();
-    }
-    QString selectSwitchid = QString("select *from switch WHERE SwitchNameID =%1").arg(SwitchNameid);//查询操作道岔联动地所有道岔
-    QSqlQuery sqlSwitchid(selectSwitchid);
-    while(sqlSwitchid.next())
-    {
-        switchid = sqlSwitchid.value(0).toInt();
-        SwitchDataMap.find(switchid).value().SwitchLoss=0x01;//将失表道岔和联动道岔全部失表
-        if(Rute == true){//如果有进路
-            SwitchDataMap.find(switchid).value().switchRoute=0x02;//失表道岔解除进路锁闭
-        }
-        MessageListAdd(2,switchid,133);
-        //道岔失表后道岔位置会变成定位
-        if(0x00 ==SwitchDataMap.find(switchid).value().switchPos)//如果是定位就启用
+    QString sectionid = SwitchStationDataMap.find(SwitchName).value();//进路道岔所对应地区段ID
+    if(SectionsDataMap.find(sectionid).value().LockStatus == 0x01 || SectionsDataMap.find(sectionid).value().LockStatus == 0x03){//如果失表道岔所对应地区段有进路锁闭
+        QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1) ORDER BY SwitchID+0").arg(SwitchName);
+        QSqlQuery sqlSwitchNames(querySwitchNames);
+        int k = 0;
+        while(sqlSwitchNames.next())//则将失表道岔和联动道岔失表、定位白光带故障、重置定反位初始化状态，道岔对应区段白光带故障、进路锁闭清除
         {
-            SwitchDataMap.find(switchid).value().switchStates = 0x01;
-            SwitchDataMap.find(switchid).value().switchwhite = 0x01;
+           int SId = sqlSwitchNames.value(0).toInt();//失表的道岔ID
+           int SName = sqlSwitchNames.value(1).toInt();//失表的道岔ID
+           if(k % 2 == 0){
+               SwitchDataMap.find(SId).value().switchStates = 0x01;
+               SwitchDataMap.find(SId).value().switchwhite = 0x01;
+           }else{
+               SwitchDataMap.find(SId).value().switchStates = 0x00;
+               SwitchDataMap.find(SId).value().switchwhite = 0x00;
+           }
+           SwitchDataMap.find(SId).value().SwitchLoss=0x01;//将失表道岔和联动道岔全部失表
+           SwitchDataMap.find(SId).value().switchRoute=0x02;//失表道岔解除进路锁闭
+           QString SectionsId = SwitchStationDataMap.find(SName).value();//进路道岔所对应地区段ID
+           SectionsDataMap.find(SectionsId).value().SectionWhiteObstacle = 0x03;//失表绿光带(主轨绿光带，分轨正常)
+           SectionsDataMap.find(SectionsId).value().LockStatus = 0x02;//并解除锁闭
+           k++;
         }
-        else if(0x01 == SwitchDataMap.find(switchid).value().switchPos)//如果是反位就不启用
+    }else{//否则将失表道岔和联动道岔失表、重置定反位初始化状态
+        QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1) ORDER BY SwitchID+0").arg(SwitchName);
+        QSqlQuery sqlSwitchNames(querySwitchNames);
+        int k = 0;
+        while(sqlSwitchNames.next())
         {
-            SwitchDataMap.find(switchid).value().switchStates = 0x00;
+           int SId = sqlSwitchNames.value(0).toInt();//失表的道岔ID
+           if(k % 2 == 0){
+               SwitchDataMap.find(SId).value().switchStates = 0x01;
+           }else{
+               SwitchDataMap.find(SId).value().switchStates = 0x00;
+           }
+           SwitchDataMap.find(SId).value().SwitchLoss=0x01;//将失表道岔和联动道岔全部失表
+           k++;
         }
     }
 
+    QString SignalName;
+    bool haveRule = false;
+    bool breakIntTwo = false;
+    QMap<QString,QList<QString>> ::iterator it;
+    if(RuleMap.count() != 0){
+        for(it = RuleMap.begin();it != RuleMap.end();++it)//判断失表道岔是否在进路之中
+        {
+            QString SwtNames = it.value()[2];
+            QByteArray num = switchesStrextract(SwtNames);
+            if(!num.contains(SwitchName)){
+                break;
+            }
+            QStringList sectionlist = it.value()[1].split(",");//所有区段名字List
+            QStringList SwitchStr = it.value()[3].split(",");//所有道岔名字和定反位拼接
+            QString SectionIdForName;
+            int SwitchNameForRule;
+            int breakInt = 0;//判断是否为失表道岔后地进路区段
+            int number = 0;
+            foreach (QString OneSection, sectionlist) {//循环所有进路区段
+                breakIntTwo = false;
+                SectionIdForName = StationIdNameDataMap.find(OneSection).value();//区段对应地区段名字ID
+                if(StationSwitchDataMap.keys().contains(SectionIdForName)){//如果进路区段有分轨
+                    SwitchNameForRule = StationSwitchDataMap.find(SectionIdForName).value();//进路中的道岔名
+                    QString sectionid = SwitchStationDataMap.find(SwitchNameForRule).value();//进路道岔所对应地区段ID
+                    QList<int> SwitchNames;//进路所有道岔
+                    QList<int> SwitchIds;//进路所有道岔ID
+                    QMap<int,QList<int>> SwitchNameToId;//失表道岔Map，key为道岔名字，value是道岔名字所对应定反位地ID
+                    QString querySwitchNames = QString("select * from switch WHERE SwitchNameID IN (SELECT SwitchNameID FROM switch WHERE SwitchName = %1) ORDER BY SwitchID+0").arg(SwitchNameForRule);
+                    QSqlQuery sqlSwitchNames(querySwitchNames);
+                    SignalName = it.key();
+                    while(sqlSwitchNames.next())
+                    {
+                       int SName = sqlSwitchNames.value(1).toInt();//失表的道岔名字
+                       int SId = sqlSwitchNames.value(0).toInt();//失表的道岔ID
+                       SwitchIds.append(SId);
+                       if(!SwitchNames.contains(SName)){
+                           SwitchNames.append(SName);
+                       }
+                       else{
+                          SwitchNameToId[SName] = SwitchIds;
+                          SwitchIds.clear();
+                       }
+                    }
+                    int idPosA = SwitchNameToId.find(SwitchNameForRule).value()[0];
+                    int idPosB = SwitchNameToId.find(SwitchNameForRule).value()[1];
+                    if(SwitchNames[0] == SwitchName){//如果道岔是失表道岔
+                        breakInt = 1;
+                        haveRule = true;
+                    }else{
+                        breakIntTwo = true;
+                    }
+                    if(breakInt != 1){
+                        SectionsDataMap.find(sectionid).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
+                        QString AStr = QString::number(idPosA, 10);
+                        QString BStr = QString::number(idPosB, 10);
+                        if(SwitchStr.contains(AStr)) SwitchDataMap.find(idPosA).value().switchwhite=0x01;//失表道岔解除进路锁闭
+                        if(SwitchStr.contains(BStr)) SwitchDataMap.find(idPosB).value().switchwhite=0x01;//失表道岔解除进路锁闭
+                    }else if(breakIntTwo == true){
+                        break;
+                    }
+                }else{
+                    SectionsDataMap.find(SectionIdForName).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
+                }
+            }
+            number++;
+        }
+    }
+    if(haveRule == true){
+        RuleMap.remove(SignalName);
+    }
 }
 
 //【12操作·道岔取消失表】 √
@@ -4682,15 +4727,15 @@ void InterLock::MessageListAdd(int type,int id,int messageid){
 //【06辅助·根据名字查询道岔的ID】
 QList<int> InterLock::SelectSwitchIdForName(QString Name){
     int switchid;
-    QList<int> switchforname;
+    QList<int> switchIdsforname;
     QString SectionIdSql = QString("SELECT * FROM switch WHERE SwitchName = %1 ORDER BY SwitchID+0").arg(Name);
     QSqlQuery querySectionId(SectionIdSql);
     while(querySectionId.next())//占用区段地分轨数量
     {
         switchid = querySectionId.value(0).toInt();
-        switchforname.append(switchid);
+        switchIdsforname.append(switchid);
     }
-    return switchforname;
+    return switchIdsforname;
 }
 
 //【07辅助·根据区段名给所途径道岔赋值白光带故障】
