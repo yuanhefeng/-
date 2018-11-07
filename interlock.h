@@ -176,6 +176,8 @@ public:
     static int Chance;
     static int First;
     static QList<int> MessageList;
+    static QList<int> StatusLights;
+    static QMap<QString,int> LightData;
 public slots:
     void readPendingDatagrams();
     void TimerTicked();

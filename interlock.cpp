@@ -6,6 +6,8 @@
 int InterLock::Chance = 0;
 int InterLock::First = 0;
 QList<int> InterLock::MessageList;
+QList<int> InterLock::StatusLights;
+QMap<QString,int> InterLock::LightData;
 
 
 //本项目目前所使用的通信协议以及用到的各种状态设置依赖于上一个项目的通信协议
@@ -64,6 +66,11 @@ InterLock::InterLock(QWidget *parent) :
         SectionDataCache();
         SignalDataCache();
         SwitchDataCache();
+        LightData["X"] = 2;
+        LightData["XF"] = 1;
+        LightData["XD"] = 13;
+        LightData["S"] = 4;
+        LightData["SF"] = 3;
         TestStationSwitch();
         Chance ++;
     }
@@ -384,11 +391,13 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 }
                 //----------------【判断条件5】区段白光带故障----------------：
                 if(SectionsDataMap.find(sectionid).value().SectionWhiteObstacle == 0x01){
+                    if(type == 2) continue;
                     MessageListAdd(1,sectionid.toInt(),105);
                     return;
                 }
                 //----------------【判断条件6】区段红光带故障----------------：
                 if(SectionsDataMap.find(sectionid).value().SectionRedObstacle == 0x01){
+                    if(type == 2) continue;
                     MessageListAdd(1,sectionid.toInt(),106);
                     return;
                 }
@@ -846,6 +855,12 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         LockSwitchs.chop(1);
         RuleList.append(LockSwitchs);
         RuleMap[beginSignalName] = RuleList;
+        if(type == 2){
+            if(LightData.contains(beginSignalName)){
+                StatusLights.append(LightData.find(beginSignalName).value());
+                StatusLights.append(2);
+            }
+        }
         RuleMap1[beginSignalName]=RuleList1;
     }
 }
@@ -1055,6 +1070,12 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
             SignalsDataMap.find(beginSignalID).value().signalLockStatus=0x02;//信号机机开放
         }
        RuleMap.remove(beginSignalName);
+       if(type == 2){
+           if(LightData.contains(beginSignalName)){
+               StatusLights.append(LightData.find(beginSignalName).value());
+               StatusLights.append(1);
+           }
+       }
     }
 }
 
@@ -1237,19 +1258,19 @@ void InterLock::QuGJ(byte Snum)
     QString SectionIdAdd;//声明③——区故解下一个区段ID
     QString SectionIdReduce;//声明④——区故解上一个区段ID
     int i;//声明⑥——区故解区段在进路锁闭区段中地检索号。
-    int zi;
+    //int zi;
     int SectionIdCount;//声明⑨——区故解区段分轨数量
     int SectionIdAddCount;//声明⑩——区故解下一个区段分轨数量
     int SectionIdReduceCount;//声明十一——区故解上一个区段分轨数量
     QString beginsignalname;
-    QString beginsignalname1;
+//    QString beginsignalname1;
     int signalid;
-    QString sectioncache;
-    QString NameList2;
-    QStringList sectioncache1;
-    QString sectioncache2;
-    QStringList sectionvalue;
-    QStringList NameList1;
+//    QString sectioncache;
+//    QString NameList2;
+//    QStringList sectioncache1;
+//    QString sectioncache2;
+//    QStringList sectionvalue;
+//    QStringList NameList1;
     bool haveRule = false;
     //根据区段的nameid查找到区段名字
     QString selectsid = QString("select * from section WHERE section.sectionnameid = %1").arg(Snum);
@@ -1260,73 +1281,74 @@ void InterLock::QuGJ(byte Snum)
     }
 
     //实现进路区段全被区故解时的进路缓存清除
-    QMap<QString,QList<QString>> ::iterator it1;
-    for(it1 = RuleMap1.begin();it1 != RuleMap1.end();++it1)
-    {
-        beginsignalname1 = it1.key();
-        if(it1.value()[0].contains(sectionname))
-        {
-            NameList1 = it1.value()[0].split(",");
-            int len=NameList1.length();
-            zi=NameList1.indexOf(sectionname);
-            if(len>3)
-            {
-                if(zi==0)
-                {
-                   NameList1.replace(zi,NULL);
-                }
-                if(zi==1)
-                {
-                    NameList1.replace(zi,NULL);
-                    NameList1.replace(zi-1,NULL);
-                }
-                if(zi== len-1)
-                {
-                    NameList1.replace(zi,NULL);
-                }
-                if(zi ==len-2)
-                {
-                    NameList1.replace(zi,NULL);
-                    NameList1.replace(zi+1,NULL);
-                }
-                if(zi>0&&zi<len-1)
-                {
-                    NameList1.replace(zi,NULL);
-                }
-            }
-            else if(len==3)
-            {
-                if(zi==0)
-                {
-                     NameList1.replace(zi,NULL);
-                }
-                if(zi==1)
-                {
-                     NameList1.replace(zi,NULL);
-                     NameList1.replace(zi+1,NULL);
-                }
-                if(zi==2)
-                {
-                     NameList1.replace(zi,NULL);
-                }
-            }
-            else if(len==2||len==1)
-            {
-                 NameList1.replace(zi,NULL);
-            }
-            for(int zu=0;zu<NameList1.length();zu++)
-            {
-                NameList2=NameList1[zu];
-                sectioncache1.append(NameList2);
-                sectioncache = sectioncache1.join(",");
-                sectioncache2 = sectioncache1.join("");
+//    QMap<QString,QList<QString>> ::iterator it1;
+//    for(it1 = RuleMap1.begin();it1 != RuleMap1.end();++it1)
+//    {
+//        beginsignalname1 = it1.key();
+//        if(it1.value()[0].contains(sectionname))
+//        {
+//            NameList1 = it1.value()[0].split(",");
+//            int len=NameList1.length();
+//            zi=NameList1.indexOf(sectionname);
+//            if(len>3)
+//            {
+//                if(zi==0)
+//                {
+//                   NameList1.replace(zi,NULL);
+//                }
+//                if(zi==1)
+//                {
+//                    NameList1.replace(zi,NULL);
+//                    NameList1.replace(zi-1,NULL);
+//                }
+//                if(zi== len-1)
+//                {
+//                    NameList1.replace(zi,NULL);
+//                }
+//                if(zi ==len-2)
+//                {
+//                    NameList1.replace(zi,NULL);
+//                    NameList1.replace(zi+1,NULL);
+//                }
+//                if(zi>0&&zi<len-1)
+//                {
+//                    NameList1.replace(zi,NULL);
+//                }
+//            }
+//            else if(len==3)
+//            {
+//                if(zi==0)
+//                {
+//                     NameList1.replace(zi,NULL);
+//                }
+//                if(zi==1)
+//                {
+//                     NameList1.replace(zi,NULL);
+//                     NameList1.replace(zi+1,NULL);
+//                }
+//                if(zi==2)
+//                {
+//                     NameList1.replace(zi,NULL);
+//                }
+//            }
+//            else if(len==2||len==1)
+//            {
+//                 NameList1.replace(zi,NULL);
+//            }
+//            for(int zu=0;zu<NameList1.length();zu++)
+//            {
+//                NameList2=NameList1[zu];
+//                sectioncache1.append(NameList2);
+//                sectioncache = sectioncache1.join(",");
+//                sectioncache2 = sectioncache1.join("");
 
-            }
-            sectionvalue.append(sectioncache);
-            RuleMap1[beginsignalname1]= sectionvalue;
-        }
-    }
-   //循环所有进路
+//            }
+//            sectionvalue.append(sectioncache);
+//            RuleMap1[beginsignalname1]= sectionvalue;
+//        }
+//    }
+
+    //循环所有进路
     QMap<QString,QList<QString>> ::iterator it;
     if(!RuleMap.isEmpty()){
         for(it = RuleMap.begin();it != RuleMap.end();++it)
@@ -1502,14 +1524,13 @@ void InterLock::QuGJ(byte Snum)
                         }
                     }
                 }
-
                haveRule = true;
             }
         }
     }
     if(haveRule == false){
-        int test1 = Snum;
-        QString Id = QString::number(test1, 10);
+        int IntSnum = Snum;
+        QString Id = QString::number(IntSnum, 10);
         SectionsDataMap.find(Id).value().SectionWhiteObstacle = 0x00;
         SectionsDataMap.find(Id).value().LockStatus = 0x00;
         int SwtichName = StationSwitchDataMap.find(Id).value();
@@ -1520,11 +1541,16 @@ void InterLock::QuGJ(byte Snum)
             SwitchDataMap.find(SelectSwitchIdForName(name)[0]).value().switchwhite = 0x00;
             SwitchDataMap.find(SelectSwitchIdForName(name)[1]).value().switchwhite = 0x00;
         }
+    }else{
+        RuleMap.remove(beginsignalname);
+        if(LightData.contains(beginsignalname)){
+            StatusLights.append(LightData.find(beginsignalname).value());
+        }
     }
-    if(sectioncache2.isEmpty())
-    {
-        RuleMap.remove(beginsignalname1);
-    }
+//    if(sectioncache2.isEmpty())
+//    {
+//        RuleMap.remove(beginsignalname1);
+//    }
 }
 
 //【06操作·信号重开】 √
@@ -4193,23 +4219,28 @@ void InterLock::SwitchLoss(byte SwitchName)
     QString SignalName;
     bool haveRule = false;
     bool breakIntTwo = false;
+    int breakInt = 0;//判断是否为失表道岔后地进路区段
+    QByteArray BoolNames;
     QMap<QString,QList<QString>> ::iterator it;
     if(RuleMap.count() != 0){
         for(it = RuleMap.begin();it != RuleMap.end();++it)//判断失表道岔是否在进路之中
         {
             QString SwtNames = it.value()[2];
             QByteArray num = switchesStrextract(SwtNames);
-            if(!num.contains(SwitchName)){
-                break;
+            BoolNames.clear();
+            for(int i=0;i<num.count();i++){
+                if(i%2 == 0){
+                    BoolNames.append(num[i]);
+                }
+            }
+            if(!BoolNames.contains(SwitchName)){
+                continue;
             }
             QStringList sectionlist = it.value()[1].split(",");//所有区段名字List
             QStringList SwitchStr = it.value()[3].split(",");//所有道岔名字和定反位拼接
             QString SectionIdForName;
             int SwitchNameForRule;
-            int breakInt = 0;//判断是否为失表道岔后地进路区段
-            int number = 0;
             foreach (QString OneSection, sectionlist) {//循环所有进路区段
-                breakIntTwo = false;
                 SectionIdForName = StationIdNameDataMap.find(OneSection).value();//区段对应地区段名字ID
                 if(StationSwitchDataMap.keys().contains(SectionIdForName)){//如果进路区段有分轨
                     SwitchNameForRule = StationSwitchDataMap.find(SectionIdForName).value();//进路中的道岔名
@@ -4235,7 +4266,7 @@ void InterLock::SwitchLoss(byte SwitchName)
                     }
                     int idPosA = SwitchNameToId.find(SwitchNameForRule).value()[0];
                     int idPosB = SwitchNameToId.find(SwitchNameForRule).value()[1];
-                    if(SwitchNames[0] == SwitchName){//如果道岔是失表道岔
+                    if(SwitchNames[0] == SwitchName || SwitchNames[1] == SwitchName){//如果道岔是失表道岔
                         breakInt = 1;
                         haveRule = true;
                     }else{
@@ -4254,11 +4285,14 @@ void InterLock::SwitchLoss(byte SwitchName)
                     SectionsDataMap.find(SectionIdForName).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
                 }
             }
-            number++;
         }
     }
     if(haveRule == true){
         RuleMap.remove(SignalName);
+        if(LightData.contains(SignalName)){
+            StatusLights.append(LightData.find(SignalName).value());
+            StatusLights.append(1);
+        }
     }
 }
 
@@ -4992,6 +5026,8 @@ void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switc
 //【发送信号】
 void InterLock::TimerTicked()
 {
+    //192.168.4.230
+    //127.0.0.1
     QByteArray data = SectionEncapsalutation();
     udpSocket->writeDatagram(data,QHostAddress("127.0.0.1"),4401);
     QByteArray data1 = SignalEncapsalutation();
@@ -5134,6 +5170,20 @@ QByteArray InterLock::SignalEncapsalutation()
         i++;
     }
     signalInitData.append(signalDataInfo);
+
+    //发送消息提示框信息
+    if(StatusLights.count() != 0){
+
+        QByteArray LightsFlashSend;
+        for(int j = 0;j < StatusLights.count(); j++)
+        {
+            LightsFlashSend.append(StatusLights[j]);
+        }
+
+        signalInitData.append(LightsFlashSend);
+        //清空发送消息提示框信息
+        StatusLights.clear();
+    }
     signalInitData.append(frameEnd);
     return signalInitData;
 }
