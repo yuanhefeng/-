@@ -9,7 +9,6 @@ QList<int> InterLock::MessageList;
 QList<int> InterLock::StatusLights;
 QMap<QString,int> InterLock::LightData;
 
-
 //本项目目前所使用的通信协议以及用到的各种状态设置依赖于上一个项目的通信协议
 InterLock::InterLock(QWidget *parent) :
     QWidget(parent),
@@ -30,7 +29,7 @@ InterLock::InterLock(QWidget *parent) :
     mSysTrayIcon->show();
     udpSocket = new QUdpSocket(this);
 
-    if(udpSocket->bind(QHostAddress("127.0.0.1"),4001))
+    if(udpSocket->bind(QHostAddress("192.168.4.216"),4001))//本地UDP客户端
     {
         qDebug()<<"XXXXXX2";
     }
@@ -46,7 +45,7 @@ InterLock::InterLock(QWidget *parent) :
 
     direction = 0xff;
     udpSocket_receive = new QUdpSocket(this);
-    udpSocket_receive->bind(QHostAddress("127.0.0.1"),4002);
+    udpSocket_receive->bind(QHostAddress("192.168.4.216"),4002);//本地UDP客户端
 
     timer = new QTimer(this);
     connect(timer, SIGNAL(timeout()), this, SLOT(TimerTicked()));
@@ -84,7 +83,9 @@ InterLock::~InterLock()
 
 int i=0;
 int fq=0;
-int fq1=0;
+int qf=0;
+int YDZSR=0;//0代表引导总锁右咽喉锁闭状态，1表示引导总锁右咽喉开放状态
+int YDZSL=0;//0代表引导总锁左咽喉锁闭状态，1表示引导总锁左咽喉开放状态
 void InterLock::readPendingDatagrams()
 {
     while (udpSocket_receive->hasPendingDatagrams())
@@ -95,151 +96,42 @@ void InterLock::readPendingDatagrams()
         if(0x20==buf[7])
         {
             i++;
-            if(i==1)
-            {
-                        QString sectionid;
-                        QSqlQuery querySection("select * from sectioninfo");
-                        while(querySection.next())
-                        {
-                            sectionid=querySection.value(0).toString();
-                            SectionsDataMap.find(sectionid).value().LockStatus='1';
-                        }
-                    }
+            if(i==1) ShangDian(); //设置上电解锁
         }
-
         if(i>=1)
         {
-//            if(0x20 == buf[7])//上电解锁
-//            {
-                //设置上电解锁
-                qDebug() <<"ShangDian:"<<buf.toInt();
-                ShangDian();
-                if(0x30 == buf[7])//建立进路————————————————————————√
-                {
-                    InLine(buf[12],buf[17],1);
-                }
-                if(0x31 == buf[7])//取消进路————————————————————————√
-                {
-                    qDebug() <<"RemoveRoute:"<< buf.toHex();
-                    RemoveRoute(buf[12],1);
-                }
-                if(0x42 == buf[7])//信号重开
-                {
-                    qDebug() <<"XinHaoCK:"<<buf.toInt();
-                    XinHaoCK(buf[12]);
-                }
-                if(0x32 == buf[7])//引导进路————————————————————————√
-                {
-                    qDebug() <<"YinDaoJL:"<<buf.toInt();
-                    InLine(buf[12],0,2);
-                    //YinDaoJL(buf[12]);
-                }
-                if(0x33 == buf[7])//引导总锁————————————————————————√
-                {
-                    qDebug() <<"YinDaoZS:"<<buf.toInt();
-                    YinDaoZS(buf[12]);
-                }
-                if(0x34 == buf[7])//总人解————————————————————————√
-                {
-                    qDebug() <<"RenGong:"<<buf.toInt();
-                    RemoveRoute(buf[12],2);
-                    //RenGong(buf[12]);
-                }
-                if(0x50 == buf[7])//道岔总定反，单解锁————————————————————————√
-                {
-                    qDebug() <<"ZongDingFanDanJieSuo:"<<buf.toInt();
-                    ZongDingFanDanJieSuo(buf[12],buf[17]);
-                }
-                if(0x25 == buf[7])//封锁按钮————————————————————————√
-                {
-                    qDebug() <<"FengSuo:"<<buf.toInt();
-                    FengSuo(buf[12],buf[17]);
-                }
-
-                if(0x54 == buf[7])//道岔失表
-                {
-                    qDebug() <<"ShiBiao:"<<buf.toInt();
-                    SwitchLoss(buf[12]);
-                }
-                if(0x55 == buf[7])//道岔取消失表
-                {
-                    qDebug() <<"QuXiaoShiBiao:"<<buf.toInt();
-                    SwitchNoLoss(buf[12]);
-                }
-
-                if(0x64 == buf[7])//分路不良
-                {
-                    //qDebug() <<"FenLu:"<<buf.toInt();
-                    //FenLu(buf[12]);
-                }
-                if(0x63 == buf[7])//区解锁
-                {
-                    qDebug() <<"QuJS:"<<buf.toInt();
-                    QuGJ(buf[12]);
-                }
-                /*if( == buf[])//调车进路
-                {
-                    qDebug() <<"DiaoChe:"<<buf.toInt();
-                    DiaoChe();
-                }*/
-                if(0x24 == buf[7])//故障设置
-                {
-                    //qDebug() <<"GuZhang:"<< buf.toInt();
-                    //GuZhang(buf[12],buf[17]);
-                }
-                if(0x35 == buf[7])//闭塞操作
-                {
-                    //qDebug() <<"BiSe:"<<buf.toInt();
-                    //BiSe(buf[12]);
-                }
-                if(0x26==buf[7])//灯丝断丝
-                {
-                    DSDS(buf[12],buf[17]);
-                }
-                if(0x60 == buf[7])//占用
-                {
-                    qDebug() <<"ZhanYong:"<<buf.toInt();
-                    ZhanYong(buf[12]);
-                }
-                if(0x40 == buf[7])//模拟行车————————————————————————√
-                {
-                    qDebug() <<"UnlockState:"<<buf.toInt();
-                    //UnlockState(buf[12]);
-                    TestUnlockState(buf[12]);
-                }
-                if(0x23==buf[7])//红白光带故障————————————————————————√
-                {
-                    qDebug()<<"HBGZ"<<buf.toInt();
-                    HBGZ(buf[12],buf[17]);
-                }
-                /*if( == buf[]) //信号机
-                {
-                    qDebug() <<"SetupSignal:"<< buf.toInt();
-                    SetupSignal(buf[],buf[]);
-                }
-                if( == buf[11])
-                {
-                    qDebug() <<"IntervalEncapsalutation:"<< buf.toInt();
-                    InterEncapsalutation(buf[],buf[],buf[],buf[],buf[]);
-                }*/
-            //}
+            if(0x30 == buf[7]) InLine(buf[12],buf[17],1);//建立进路————————————————————————√
+            if(0x31 == buf[7]) RemoveRoute(buf[12],1);//取消进路————————————————————————√
+            if(0x42 == buf[7]) XinHaoCK(buf[12]);//信号重开
+            if(0x32 == buf[7]) InLine(buf[12],0,2);//引导进路————————————————————————√
+            if(0x33 == buf[7]) YinDaoZS(buf[12]);//引导总锁————————————————————————√
+            if(0x34 == buf[7]) RemoveRoute(buf[12],2);//总人解————————————————————————√
+            if(0x50 == buf[7]) ZongDingFanDanJieSuo(buf[12],buf[17]);//道岔总定反，单解锁————————————————————————√
+            if(0x25 == buf[7]) FengSuo(buf[12],buf[17]);//封锁按钮————————————————————————√
+            if(0x54 == buf[7]) SwitchLoss(buf[12]);//道岔失表
+            if(0x55 == buf[7]) SwitchNoLoss(buf[12]);//道岔取消失表
+            //if(0x64 == buf[7]) //FenLu(buf[12]);//分路不良
+            if(0x63 == buf[7]) QuGJ(buf[12]);//区解锁
+            //if(0x24 == buf[7]) //GuZhang(buf[12],buf[17]);//故障设置
+            //if(0x35 == buf[7]) //BiSe(buf[12]);//闭塞操作
+            if(0x26==buf[7]) DSDS(buf[12],buf[17]);//灯丝断丝
+            if(0x60 == buf[7]) ZhanYong(buf[12]);//占用
+            if(0x40 == buf[7]) UnlockState(buf[12]);//模拟行车————————————————————————√
+            if(0x23==buf[7]) HBGZ(buf[12],buf[17]);//红白光带故障————————————————————————√
         }
         else return;
     }
 }
 
-//【00操作·上电解锁】√
+//【00操作·上电解锁】
 void InterLock::ShangDian()
 {
-    SwitchData switchData;
-    QMap<int,SwitchData>::iterator itSwitch;
-    QSqlQuery selectswitch("select * from switch");
-    while(selectswitch.next())
+    QString sectionid;
+    QSqlQuery querySection("select * from sectioninfo");
+    while(querySection.next())
     {
-        for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
-        {
-            switchData.switchLock = 0x02;//上电后解锁，状态为空闲
-        }
+        sectionid=querySection.value(0).toString();
+        UpdateSection(sectionid,"LockStatus",0x02);
     }
 }
 
@@ -253,34 +145,50 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
     QString lineruleid;//进路路线ID
     QString First;//选取的路线序号（有共同起点终点信号机的路线）
     QString sql;//sql语句
+    int SignalRegion;
+    int SignalID;
     QString Type;//进路类型：侧线/正线/通路/调车
     QList<QString> RuleList;//需要向所有进路集合增加的本次进路（包括起点信号机、经过地所有区段、道岔、进路类型）
     QList<QString> RuleList1;
-    QList<int> OneSwitch = {21,27,29,14,22,16};
+    QList<int> OneSwitch = {21,27,29,14,22,16};//单动道岔
     QMap<int,SwitchData> test = SwitchDataMap;
 
     //起点信号机ID取得起点信号机名字
     QString selectbeginsignalid = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
     QSqlQuery querybeginsignalid(selectbeginsignalid);
-    while(querybeginsignalid.next())
-    {
-        beginSignalName = querybeginsignalid.value(3).toString();
-    }
-
+    while(querybeginsignalid.next()) beginSignalName = querybeginsignalid.value(3).toString();
     //获取该条进路需要经过的所有道岔和区段
     if(type ==1){     //正常进路
         //终点信号机ID取得终点信号机名字
         QString selectendsignalid = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(endSignalID);
         QSqlQuery queryendsignalid(selectendsignalid);
-        while(queryendsignalid.next())
-        {
-            endSignalName = queryendsignalid.value(3).toString();
-        }
+        while(queryendsignalid.next()) endSignalName = queryendsignalid.value(3).toString();
         //进路中所有的道岔
         sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\" and `First` = 1").arg(beginSignalName).arg(endSignalName);
     }
     else if(type ==2){   //引导进路
-        //QString LineName = beginSignalName + "引导";
+        QString selectsignalregion =QString("SELECT * FROM signalinfo WHERE signalinfo.SingalName=\"%1\"").arg(beginSignalName);
+        QSqlQuery sqlsignalregion(selectsignalregion);
+        while(sqlsignalregion.next())
+        {
+            SignalRegion=sqlsignalregion.value(10).toInt();
+            SignalID=sqlsignalregion.value(0).toInt();
+            if(RuleMap.keys().contains(beginSignalName))
+            {
+                MessageListAdd(3,SignalID,150);
+                return;
+            }
+            if(YDZSL==1 && SignalRegion==0x01)//引导总锁锁闭后引导进路只有信号机开放
+            {
+                UpdateSignal(SignalID,"signalStatus",0x10);
+                return;
+            }
+            if(YDZSR==1 && SignalRegion==0x02)
+            {
+                UpdateSignal(SignalID,"signalStatus",0x10);
+                return;
+            }
+        }
         //进路中所有的道岔
         sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\"").arg(beginSignalName);
         QSqlQuery queryYD(sql);
@@ -295,20 +203,24 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 int switchname = YDnum[k];//进路途径地道岔名字,1反位，2定位
                 switchnameYD = QString::number(switchname, 10);
                 QList<int> switchidlist = SelectSwitchIdForName(switchnameYD);
-                if(SwitchDataMap.find(switchidlist[0]).value().switchStates != 0x01 || YDnum[k+1].operator != (0x02)){
-                    if(SwitchDataMap.find(switchidlist[1]).value().switchStates != 0x01 || YDnum[k+1].operator != (0x01)){
+                int OneK = YDnum[k+1]-1;
+                int TwoK = YDnum[k+1];
+                if(SwitchDataMap.find(switchidlist[0]).value().switchStates != OneK || TwoK != 0x02){
+                    if(SwitchDataMap.find(switchidlist[1]).value().switchStates != TwoK || TwoK != 0x01){
                         break;
                     }
                 }
-                if(k==YDnum.count()-2){
+                if(k==YDnum.count()-2)
+                {
                    endSignalName = EndSignalName;
                 }
             }
         }
         if(endSignalName == NULL || endSignalName == ""){
+            MessageListAdd(3,beginSignalID,138);
             return;
         }else{
-            sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\" and `First` = 1").arg(beginSignalName).arg(endSignalName);
+            sql = QString("select * from interlockinginfo WHERE BeginSignal = \"%1\" AND EndSignal = \"%2\"").arg(beginSignalName).arg(endSignalName);
         }
     }
     QSqlQuery queryinterlocking(sql);
@@ -330,14 +242,14 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
             {
                 switchid = queryswitch.value(0).toInt();
                 //----------------【判断条件7】道岔被锁闭，且定反位与进路需求不一致----------------
-                //如果进路要求道岔定位，但是道岔是反位，且道岔被进路，则进路无效
-                if((num[k+1]+0) == 2 && SwitchDataMap.find(switchid).value().switchPos == 0x01 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchRoute == 0x01){
-                    MessageListAdd(2,switchid,135);
+                //如果进路要求道岔定位，但是道岔是反位，且道岔被锁闭，则进路无效
+                if((num[k+1]+0) == 2 && SwitchDataMap.find(switchid).value().switchPos == 0x01 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
+                    MessageListAdd(2,switchid,130);
                     return;
                 }
-                //如果进路要求道岔反位，但是道岔是定位，且道岔被进路，则进路无效
-                if((num[k+1]+0) == 1 && SwitchDataMap.find(switchid).value().switchPos == 0x00 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchRoute == 0x01){
-                    MessageListAdd(2,switchid,135);
+                //如果进路要求道岔反位，但是道岔是定位，且道岔被锁闭，则进路无效
+                if((num[k+1]+0) == 1 && SwitchDataMap.find(switchid).value().switchPos == 0x00 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
+                    MessageListAdd(2,switchid,130);
                     return;
                 }
                 //----------------【判断条件8】道岔失表----------------：
@@ -348,11 +260,6 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
                 //----------------【判断条件9】道岔封锁----------------：
                 if(SwitchDataMap.find(switchid).value().blockStatus == 0x01){
                     MessageListAdd(2,switchid,132);
-                    return;
-                }
-                //----------------【判断条件10】道岔锁闭----------------：
-                if(SwitchDataMap.find(switchid).value().switchLock == 0x01){
-                    MessageListAdd(2,switchid,130);
                     return;
                 }
             }
@@ -408,22 +315,14 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
 
     QSqlQuery queryinterlockingB(sql);
     //所有条件满足，为进路地区段增加锁闭，为进路地道岔改变定反位并锁闭
-    while(queryinterlockingB.next())
+    while(queryinterlockingB.next())//条件判断,暂时设置First = 1
     {
         First = queryinterlockingB.value(9).toString();
-        //条件判断,暂时设置First = 1
         lineruleid = queryinterlockingB.value(0).toString();
         SectionNames = queryinterlockingB.value(5).toString();
         SwitchNames = queryinterlockingB.value(7).toString();
         Type = queryinterlockingB.value(9).toString();
-        if(SectionNames.count() == 0 || SwitchNames.count() == 0)
-        {
-            return ;
-        }
-
-        //拆分道岔名字和定反位
-        //声明一个锁闭道岔的ID拼接地字符串（模拟行车功能用）
-        QString LockSwitchs;
+        QString LockSwitchs;//声明一个锁闭道岔的ID拼接地字符串（模拟行车功能用）
         QByteArray num = switchesStrextract(SwitchNames);
         int switchname;
         int switchnametest;
@@ -845,15 +744,17 @@ void InterLock::InLine(byte beginSignalID,byte endSignalID,int type)
         }
         else if(type==0x02)//引导进路信号灯状态
         {
-            SignalsDataMap.find(beginSignalID).value().signalStatus=0x0f;//红白
+            SignalsDataMap.find(beginSignalID).value().signalStatus=0x10;//红白
         }
 
+        QString type1 = QString::number(type,10);
         RuleList1.append(SectionNames);
         RuleList.append(Type);
         RuleList.append(SectionNames);
         RuleList.append(SwitchNames);
         LockSwitchs.chop(1);
         RuleList.append(LockSwitchs);
+        RuleList.append(type1);//1为正常进路 2为引导进路
         RuleMap[beginSignalName] = RuleList;
         if(type == 2){
             if(LightData.contains(beginSignalName)){
@@ -897,22 +798,27 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
             }
             //----------------【判断条件1】区段封锁----------------
             if(SectionsDataMap.find(sectionid).value().blockStatus == 0x01){
+                MessageListAdd(1,sectionid.toInt(),102);
                 return;
             }
             //----------------【判断条件2】区段分路不良----------------
             if(SectionsDataMap.find(sectionid).value().PoorStatus == 0x01){
+                MessageListAdd(1,sectionid.toInt(),103);
                 return;
             }
             //----------------【判断条件3】区段占用----------------
             if(SectionsDataMap.find(sectionid).value().sectionStatus == 0x01){
+                MessageListAdd(1,sectionid.toInt(),104);
                 return;
             }
             //----------------【判断条件4】区段白光带故障----------------
             if(SectionsDataMap.find(sectionid).value().SectionWhiteObstacle == 0x01){
+                MessageListAdd(1,sectionid.toInt(),105);
                 return;
             }
             //----------------【判断条件5】区段红光带故障----------------
             if(SectionsDataMap.find(sectionid).value().SectionRedObstacle == 0x01){
+                MessageListAdd(1,sectionid.toInt(),106);
                 return;
             }
         }
@@ -934,10 +840,23 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
                 switchid = queryswitch.value(0).toInt();
                 //----------------【判断条件6】道岔失表----------------
                 if(SwitchDataMap.find(switchid).value().SwitchLoss == 0x01){
+                    MessageListAdd(1,switchid,131);
                     return;
                 }
                 //----------------【判断条件7】道岔封锁----------------
                 if(SwitchDataMap.find(switchid).value().blockStatus == 0x01){
+                    MessageListAdd(1,switchid,132);
+                    return;
+                }
+                //----------------【判断条件7】道岔被锁闭，且定反位与进路需求不一致----------------
+                //如果进路要求道岔定位，但是道岔是反位，且道岔被锁闭，则进路无效
+                if((num[k+1]+0) == 2 && SwitchDataMap.find(switchid).value().switchPos == 0x01 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
+                    MessageListAdd(1,switchid,130);
+                    return;
+                }
+                //如果进路要求道岔反位，但是道岔是定位，且道岔被锁闭，则进路无效
+                if((num[k+1]+0) == 1 && SwitchDataMap.find(switchid).value().switchPos == 0x00 && SwitchDataMap.find(switchid).value().switchStates == 0x01 && SwitchDataMap.find(switchid).value().switchLock == 0x01){
+                    MessageListAdd(2,switchid,130);
                     return;
                 }
 
@@ -1000,14 +919,14 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
                         if(type == 1)
                         { //总取消
                             if(switchit.value().switchRoute == 0x01){
-                                switchit.value().switchRoute = 0x02;
+                                UpdateSwitch(switchit.value().switchID,"switchLock",0x02,switchit.value().switchPos);
                                 switchremove = true;
                             }
                         }
                         else if(type == 2)
                         { //总人解
                             if(switchit.value().switchRoute == 0x01 || switchit.value().switchRoute == 0x03){
-                                switchit.value().switchRoute = 0x02;
+                                UpdateSwitch(switchit.value().switchID,"switchLock",0x02,switchit.value().switchPos);
                                 switchremove = true;
                             }
                         }
@@ -1017,14 +936,14 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
                         if(type == 1)
                         { //总取消
                             if(switchit.value().switchRoute == 0x01){
-                                switchit.value().switchRoute = 0x02;
+                                UpdateSwitch(switchit.value().switchID,"switchLock",0x02,switchit.value().switchPos);
                                 switchremove = true;
                             }
                         }
                         else if(type == 2)
                         { //总人解
                             if(switchit.value().switchRoute == 0x01 || switchit.value().switchRoute == 0x03){
-                                switchit.value().switchRoute = 0x02;
+                                UpdateSwitch(switchit.value().switchID,"switchLock",0x02,switchit.value().switchPos);
                                 switchremove = true;
                             }
                         }
@@ -1050,7 +969,7 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
             }
             else {SignalsDataMap.find(beginSignalID).value().signalStatus= 0x07;
             }
-            SignalsDataMap.find(beginSignalID).value().signalLockStatus=0x02;//信号机开放
+            UpdateSignal(beginSignalID,"signalLockStatus",0x02);//信号机机开放
         }
         else
         {
@@ -1066,8 +985,7 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
             {
                 SignalsDataMap.find(beginSignalID).value().signalStatus = 0x01;
             }
-
-            SignalsDataMap.find(beginSignalID).value().signalLockStatus=0x02;//信号机机开放
+            UpdateSignal(beginSignalID,"signalLockStatus",0x02);//信号机机开放
         }
        RuleMap.remove(beginSignalName);
        if(type == 2){
@@ -1079,82 +997,145 @@ void InterLock::RemoveRoute(byte beginSignalID,int type)
     }
 }
 
-//【03操作·引导总锁】 √
+//【03操作·引导总锁】
 void InterLock::YinDaoZS(byte Direction)
 {
     //01为锁闭状态，02为未锁闭
+    QString BeginSignalName;
+    int BeginSignalID;
+    int region;
+    QString signalname;
     byte direction = Direction;
-    SwitchData switchData;
-//    QString SwitchID;
-//    QString SwitchID1;
+    QStringList signalidlistl = {"1","2","13"};
+    QStringList signalidlistr = {"3","4"};
     QMap<int,SwitchData>::iterator itSwitch;
-//    QMap<QString,QList<QString>> ::iterator it;
-//    for(it=RuleMap.begin();it!=RuleMap.end();it++)
-//    {
-//        SwitchID=it.value()[3];
-//    }
-
+    QMap<int,SignalData>::iterator itSignal;
     if(0x01 == direction)//X引导总锁
     {
         for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
         {
-            int SwitchName =itSwitch.value().switchName;
-//            QString selectID =QString("select *from switch WHERE switch.SwitchName=%1").arg(SwitchName);
-//            QSqlQuery sqlID(selectID);
-//            while(sqlID.next())
-//            {
-//                SwitchID1=sqlID.value(0).toString();
-//            }
-//            if(SwitchID.contains(SwitchID1))
-//            {
-//                continue;
-//            }
-               if(fq%2==0)
+        int SwitchId= itSwitch.value().switchID;
+           if(fq%2==0)//总锁
+            {
+                if(itSwitch.value().switchName % 2 != 0)//为X区域的道岔
                 {
-                    if(itSwitch.value().switchName % 2 != 0)//为奇数
-                    {
-                        itSwitch.value().switchLock = 0x01;
-                        MessageListAdd(2,SwitchName,68);
-                    }
-                }
-                else if(fq%2!=0)
-                {
-                    if(itSwitch.value().switchName % 2 != 0)//为奇数
-                    {
-                        itSwitch.value().switchLock = 0x02;
-                        MessageListAdd(2,SwitchName,70);
-                    }
+                    UpdateSwitch(SwitchId,"switchRoute",0x01,itSwitch.value().switchPos);
+                    YDZSL=1;
                 }
             }
-        fq++;
+            else if(fq%2!=0)//解锁
+            {
+               for(itSignal = SignalsDataMap.begin();itSignal !=SignalsDataMap.end();++itSignal)
+               {
+                   int signalid =itSignal.value().signalId;
+                   qDebug()<<signalid;
+                   QString signalidstr =QString::number(signalid,10);
+                   QString selectsignalname =QString("select *from signalinfo WHERE signalinfo.SignalID=%1").arg(signalid);
+                   QSqlQuery sqlname(selectsignalname);
+                   while(sqlname.next())
+                   {
+                       signalname =sqlname.value(3).toString();
+                   }
+                   if(signalidlistl.contains(signalidstr))
+                   {
+                       UpdateSignal(signalid,"signalStatus",0x01);
+                   }
+               }
+               QMap<QString,QList<QString>>::iterator iter;
+               for(iter=RuleMap.begin();iter!=RuleMap.end();iter++)
+               {
+                   BeginSignalName=iter.key();
+                   QString selectsignalid =QString("SELECT *FROM signalinfo where signalinfo.SingalName=\"%1\"").arg(BeginSignalName);
+                   QSqlQuery sqlid(selectsignalid);
+                   while(sqlid.next())
+                   {
+                       region = sqlid.value(10).toInt();
+                       BeginSignalID = sqlid.value(0).toInt();
+                   }
+                   if(RuleMap[BeginSignalName][4]=='2')//引导进路
+                   {
+                       if(region==0x01)
+                       {
+                           UpdateSignal(BeginSignalID,"signalStatus",0x01);
+                       }
+                   }
+               }
+                if(itSwitch.value().switchName % 2 != 0)
+                {
+                    UpdateSwitch(SwitchId,"switchRoute",0x02,itSwitch.value().switchPos);
+                    YDZSL=0;
+                }
+            }
+        }
+        fq=fq+1;
+        return;
     }
     if(0x02 == direction)//S引导总锁
     {
         for(itSwitch = SwitchDataMap.begin();itSwitch != SwitchDataMap.end();++itSwitch)
         {
-            int SwitchName =itSwitch.value().switchName;
-                if(fq1%2==0)
+            int SwitchId= itSwitch.value().switchID;
+            if(qf%2==0)//总锁
+            {
+                if(itSwitch.value().switchName % 2 == 0)//为S区域
                 {
-                    if(itSwitch.value().switchName % 2 == 0)//为偶数
-                    {
-                        itSwitch.value().switchLock = 0x01;
-                        MessageListAdd(2,SwitchName,68);
-                    }
-                }
-                else if(fq1%2!=0)
-                {
-                    if(itSwitch.value().switchName % 2 == 0)//为偶数
-                    {
-                        itSwitch.value().switchLock = 0x02;
-                        MessageListAdd(2,SwitchName,70);
-                    }
+                    UpdateSwitch(SwitchId,"switchRoute",0x01,itSwitch.value().switchPos);
+                    YDZSR=1;
                 }
             }
-        fq1++;
+            else if(qf%2!=0)//解锁
+            {
+                for(itSignal = SignalsDataMap.begin();itSignal !=SignalsDataMap.end();++itSignal)
+                {
+                    int signalid =itSignal.value().signalId;
+                    qDebug()<<signalid;
+                    QString signalidstr =QString::number(signalid,10);
+                    QString selectsignalname =QString("select *from signalinfo WHERE signalinfo.SignalID=%1").arg(signalid);
+                    QSqlQuery sqlname(selectsignalname);
+                    while(sqlname.next())
+                    {
+                        signalname =sqlname.value(3).toString();
+                    }
+                    if(signalidlistr.contains(signalidstr))
+                    {
+                        if(SignalsDataMap.find(signalid).value().signalStatus==0x10)
+                        {
+                            UpdateSignal(signalid,"signalStatus",0x01);
+                        }
+                    }
+                }
+                QMap<QString,QList<QString>>::iterator iter;
+                for(iter=RuleMap.begin();iter!=RuleMap.end();iter++)
+                {
+                    BeginSignalName=iter.key();
+                    QString selectsignalid =QString("SELECT *FROM signalinfo where signalinfo.SingalName=\"%1\"").arg(BeginSignalName);
+                    QSqlQuery sqlid(selectsignalid);
+                    while(sqlid.next())
+                    {
+                        region = sqlid.value(10).toInt();
+                        BeginSignalID = sqlid.value(0).toInt();
+                    }
+                    if(RuleMap[BeginSignalName][4]=='2')//引导进路
+                    {
+                        if(region==0x02)
+                        {
+                             UpdateSignal(BeginSignalID,"signalStatus",0x01);
+                        }
+                    }
+                }
+                if(itSwitch.value().switchName % 2 == 0)
+                {
+                    UpdateSwitch(SwitchId,"switchRoute",0x02,itSwitch.value().switchPos);
+                    YDZSR=0;
+                }
+            }
+        }
+        qf=qf+1;
+        return;
     }
 }
 
-//【04操作·封锁按钮（封锁/取消封锁）】√  在有进路的情况下不能封锁道岔和区段
+//【04操作·封锁按钮（封锁/取消封锁）】√  在有进路的情况下不能封锁道岔和区段 （改
 void InterLock::FengSuo(byte Id,byte Type)
 {
     int sectionid;
@@ -1167,23 +1148,10 @@ void InterLock::FengSuo(byte Id,byte Type)
 
     if(0x01 == Type)//封锁信号机
     {
-        if(SignalsDataMap.find(Id).value().blockStatus != 0x01){
-            SignalsDataMap.find(Id).value().blockStatus = 0x01;
-        }else{
-           SignalsDataMap.find(Id).value().blockStatus = 0x02;
-        }
-
+        UpdateSignal(Id,"blockStatus",0x00);//改变按钮封锁状态
     }
-//    QString selectsignalname = QString("select *from section WHERE section.Sectionnameid=%1").arg(Id);
-//    QSqlQuery sqlsignalname(selectsignalname);
-//    while(sqlsignalname.next())
-//    {
-//        signalname=sqlsignalname.value(1).toString();
-//    }
-
     if(0x03 == Type)//封锁轨道
     {
-        qDebug()<<SectionsDataMap.find(thisid).value().blockStatus;
         QString selectsectionname =QString("SELECT *from section WHERE section.Sectionnameid=%1").arg(Id);
         QSqlQuery sqlname(selectsectionname);
         while(sqlname.next())
@@ -1196,20 +1164,13 @@ void InterLock::FengSuo(byte Id,byte Type)
         {
             if(it.value()[1].contains(sectionname))
             {
-                MessageListAdd(1,sectionid,138);
+                MessageListAdd(1,sectionid,101);//区段被锁闭，无法进行当前操作
                 return;
             }
         }
-        if(SectionsDataMap.find(thisid).value().blockStatus != 0x01)
-        {
-            SectionsDataMap.find(thisid).value().blockStatus = 0x01;
-        }
-        else
-        {
-            SectionsDataMap.find(thisid).value().blockStatus = 0x02;
-        }
+        UpdateSection(thisid,"blockStatus",0x00);//轨道封锁
     }
-    if(0x02 == Type)//封锁道岔
+    if(0x02 == Type)//封锁道岔（改
     {
         int frq=0;
         QString selectswitchid = QString("SELECT * from switch where SwitchName IN (select SwitchName from switch WHERE SwitchName = %1)").arg(Id);
@@ -1224,7 +1185,7 @@ void InterLock::FengSuo(byte Id,byte Type)
             {
                 if(it.value()[3].contains(SWITCHID))
                 {
-                    MessageListAdd(2,Switchid,137);
+                    MessageListAdd(2,Switchid,135);//道岔进路，无法进行当前操作
                     return;
                 }
             }
@@ -1236,21 +1197,14 @@ void InterLock::FengSuo(byte Id,byte Type)
                 while(sqlSW.next())
                 {
                     lswitchid = sqlSW.value(0).toInt();
-                    if(SwitchDataMap.find(lswitchid).value().blockStatus != 0x01)
-                    {
-                        SwitchDataMap.find(lswitchid).value().blockStatus = 0x01;
-                    }
-                    else
-                    {
-                        SwitchDataMap.find(lswitchid).value().blockStatus = 0x02;
-                    }
+                    UpdateSwitch(lswitchid,"blockStatus",0x00,0x00);
                 }
             }
         }
     }
 }
 
-//【05操作·区故解】√
+//【05操作·区故解】
 void InterLock::QuGJ(byte Snum)
 {
     QString sectionname;//声明①——需要区故解区段名字
@@ -1258,95 +1212,16 @@ void InterLock::QuGJ(byte Snum)
     QString SectionIdAdd;//声明③——区故解下一个区段ID
     QString SectionIdReduce;//声明④——区故解上一个区段ID
     int i;//声明⑥——区故解区段在进路锁闭区段中地检索号。
-    //int zi;
     int SectionIdCount;//声明⑨——区故解区段分轨数量
     int SectionIdAddCount;//声明⑩——区故解下一个区段分轨数量
     int SectionIdReduceCount;//声明十一——区故解上一个区段分轨数量
     QString beginsignalname;
-//    QString beginsignalname1;
     int signalid;
-//    QString sectioncache;
-//    QString NameList2;
-//    QStringList sectioncache1;
-//    QString sectioncache2;
-//    QStringList sectionvalue;
-//    QStringList NameList1;
     bool haveRule = false;
     //根据区段的nameid查找到区段名字
     QString selectsid = QString("select * from section WHERE section.sectionnameid = %1").arg(Snum);
     QSqlQuery queryid(selectsid);
-    while(queryid.next())
-    {
-        sectionname = queryid.value(1).toString();
-    }
-
-    //实现进路区段全被区故解时的进路缓存清除
-//    QMap<QString,QList<QString>> ::iterator it1;
-//    for(it1 = RuleMap1.begin();it1 != RuleMap1.end();++it1)
-//    {
-//        beginsignalname1 = it1.key();
-//        if(it1.value()[0].contains(sectionname))
-//        {
-//            NameList1 = it1.value()[0].split(",");
-//            int len=NameList1.length();
-//            zi=NameList1.indexOf(sectionname);
-//            if(len>3)
-//            {
-//                if(zi==0)
-//                {
-//                   NameList1.replace(zi,NULL);
-//                }
-//                if(zi==1)
-//                {
-//                    NameList1.replace(zi,NULL);
-//                    NameList1.replace(zi-1,NULL);
-//                }
-//                if(zi== len-1)
-//                {
-//                    NameList1.replace(zi,NULL);
-//                }
-//                if(zi ==len-2)
-//                {
-//                    NameList1.replace(zi,NULL);
-//                    NameList1.replace(zi+1,NULL);
-//                }
-//                if(zi>0&&zi<len-1)
-//                {
-//                    NameList1.replace(zi,NULL);
-//                }
-//            }
-//            else if(len==3)
-//            {
-//                if(zi==0)
-//                {
-//                     NameList1.replace(zi,NULL);
-//                }
-//                if(zi==1)
-//                {
-//                     NameList1.replace(zi,NULL);
-//                     NameList1.replace(zi+1,NULL);
-//                }
-//                if(zi==2)
-//                {
-//                     NameList1.replace(zi,NULL);
-//                }
-//            }
-//            else if(len==2||len==1)
-//            {
-//                 NameList1.replace(zi,NULL);
-//            }
-//            for(int zu=0;zu<NameList1.length();zu++)
-//            {
-//                NameList2=NameList1[zu];
-//                sectioncache1.append(NameList2);
-//                sectioncache = sectioncache1.join(",");
-//                sectioncache2 = sectioncache1.join("");
-
-//            }
-//            sectionvalue.append(sectioncache);
-//            RuleMap1[beginsignalname1]= sectionvalue;
-//        }
-//    }
+    while(queryid.next()) sectionname = queryid.value(1).toString();
 
     //循环所有进路
     QMap<QString,QList<QString>> ::iterator it;
@@ -1363,9 +1238,9 @@ void InterLock::QuGJ(byte Snum)
                     signalid=sqlsignalid.value(0).toInt();
                     if(RuleMap.find(beginsignalname).value()[0]=='4')
                     {
-                        SignalsDataMap.find(signalid).value().signalStatus=0x07;
+                        UpdateSignal(signalid,"signalStatus",0x07);
                     }
-                    else SignalsDataMap.find(signalid).value().signalStatus=0x01;
+                    else UpdateSignal(signalid,"signalStatus",0x01);
                 }
                 QByteArray SwitchNameAndStatus = switchesStrextract(it.value()[2]);//声明⑦——需要区故解地进路中地所有道岔名字+定反位
                 QStringList NameList = it.value()[1].split(",");//声明⑧——需要区故解地进路中地所有区段名字
@@ -1386,26 +1261,26 @@ void InterLock::QuGJ(byte Snum)
                 if(itsec.value().SectionWhiteObstacle == 0x01 || itsec.value().LockStatus == 0x01)
                 {
                     SwitchWhite(SectionIdCount,sectionname,SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
-                    SectionsDataMap.find(SectionId).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                    SectionsDataMap.find(SectionId).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                    UpdateSection(SectionId,"SectionWhiteObstacle",0x02);//取消该区段的白光带故障
+                    UpdateSection(SectionId,"LockStatus",0x02);//取消该区段的锁闭状态
                     if(len>3)
                     {
                         //第一个区段故障
                         if(i == 0)
                         {
                             if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
                         }
                         //第二个区段故障
                         else if(i == 1){
                             if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
-                            SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x02;//连带取消第一个区段地白光带故障
-                            SectionsDataMap.find(SectionIdReduce).value().LockStatus = 0x02;//连带取消第一个区段地锁闭状态
+                            UpdateSection(SectionIdReduce,"SectionWhiteObstacle",0x02);//连带取消第一个区段地白光带故障
+                            UpdateSection(SectionIdReduce,"LockStatus",0x02);//连带取消第一个区段地锁闭状态
                             SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
                         }
                         //如果是最后一段区段故障
@@ -1429,8 +1304,8 @@ void InterLock::QuGJ(byte Snum)
                         {
                             for(int j=i-1;j>=0;j--)
                             {
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;//取消该区段的白光带故障
-                                SectionsDataMap.find(SectionIdAdd).value().LockStatus = 0x02;//取消该区段的锁闭状态
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x02);//取消该区段的白光带故障
+                                UpdateSection(SectionIdAdd,"LockStatus",0x02);//取消该区段的锁闭状态
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);//给道岔地白光带故障赋值
                                 QString SectionIdJ = SelectIdForName(NameList[j]);
                                 QMap<QString,SectionData>::iterator itsec1 = SectionsDataMap.find(SectionIdJ);
@@ -1447,7 +1322,7 @@ void InterLock::QuGJ(byte Snum)
                         else if(i>0 && i<len-1)
                         {
                             if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02){
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//且下一位区段变成白光带故障
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
                             for(int j=i-1;j>=0;j--)
@@ -1471,7 +1346,7 @@ void InterLock::QuGJ(byte Snum)
                         {
                             if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
                             {
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
                         }
@@ -1479,10 +1354,10 @@ void InterLock::QuGJ(byte Snum)
                         {
                             if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
                             {
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//且下一位区段变成白光带故障
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
-                            SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x02;
+                            UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x02);
                             SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x02);
                         }
                         if(i==2)
@@ -1510,7 +1385,7 @@ void InterLock::QuGJ(byte Snum)
                         {
                             if(SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdAdd).value().LockStatus != 0x02)
                             {
-                                SectionsDataMap.find(SectionIdAdd).value().SectionWhiteObstacle = 0x01;//下一位区段变成白光带故障
+                                UpdateSection(SectionIdAdd,"SectionWhiteObstacle",0x01);//下一位区段变成白光带故障
                                 SwitchWhite(SectionIdAddCount,NameList[i+1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
                         }
@@ -1518,7 +1393,7 @@ void InterLock::QuGJ(byte Snum)
                         {
                             if(SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle != 0x02 || SectionsDataMap.find(SectionIdReduce).value().LockStatus != 0x02)
                             {
-                                SectionsDataMap.find(SectionIdReduce).value().SectionWhiteObstacle = 0x01;//上一位区段变成白光带故障
+                                UpdateSection(SectionIdReduce,"SectionWhiteObstacle",0x01);//上一位区段变成白光带故障
                                 SwitchWhite(SectionIdReduceCount,NameList[i-1],SwitchNameAndStatus,0x01);//给道岔地白光带故障赋值
                             }
                         }
@@ -1531,29 +1406,26 @@ void InterLock::QuGJ(byte Snum)
     if(haveRule == false){
         int IntSnum = Snum;
         QString Id = QString::number(IntSnum, 10);
-        SectionsDataMap.find(Id).value().SectionWhiteObstacle = 0x00;
-        SectionsDataMap.find(Id).value().LockStatus = 0x00;
+        UpdateSection(Id,"SectionWhiteObstacle",0x00);//取消白光带故障
+        UpdateSection(Id,"LockStatus",0x00);//取消进路锁闭
         int SwtichName = StationSwitchDataMap.find(Id).value();
         QString name = QString::number(SwtichName, 10);
         if(!SelectSwitchIdForName(name).isEmpty()){
-            SwitchDataMap.find(SelectSwitchIdForName(name)[0]).value().switchRoute = 0x00;
-            SwitchDataMap.find(SelectSwitchIdForName(name)[1]).value().switchRoute = 0x00;
-            SwitchDataMap.find(SelectSwitchIdForName(name)[0]).value().switchwhite = 0x00;
-            SwitchDataMap.find(SelectSwitchIdForName(name)[1]).value().switchwhite = 0x00;
+            UpdateSwitch(SelectSwitchIdForName(name)[0],"switchLock",0x00,NULL);//取消道岔定位进路锁闭
+            UpdateSwitch(SelectSwitchIdForName(name)[1],"switchLock",0x00,NULL);//取消道岔反位进路锁闭
+            UpdateSwitch(SelectSwitchIdForName(name)[0],"switchwhite",0x00,NULL);//取消道岔定位进路白光带故障
+            UpdateSwitch(SelectSwitchIdForName(name)[1],"switchwhite",0x00,NULL);//取消道岔反位进路白光带故障
         }
     }else{
         RuleMap.remove(beginsignalname);
         if(LightData.contains(beginsignalname)){
             StatusLights.append(LightData.find(beginsignalname).value());
+            StatusLights.append(1);
         }
     }
-//    if(sectioncache2.isEmpty())
-//    {
-//        RuleMap.remove(beginsignalname1);
-//    }
 }
 
-//【06操作·信号重开】 √
+//【06操作·信号重开】
 void InterLock::XinHaoCK(byte SignalID)
 {
     QString beginSignalName;
@@ -1563,28 +1435,26 @@ void InterLock::XinHaoCK(byte SignalID)
     while(sqlname.next())
     {
         beginSignalName=sqlname.value(3).toString();
-        qDebug()<<"beginSignalName:"<<beginSignalName;
     }
     QMap<QString,QList<QString>>::iterator its;
     for(its=RuleMap.begin();its!=RuleMap.end();its++)
     {
-        if(RuleMap.keys().contains(beginSignalName))
+        if(RuleMap.keys().contains(beginSignalName)&&RuleMap.find(beginSignalName).value()[4]=='1')//进路缓存中有进路并且为正常进路
         {
             for(int i=0;i<RuleMap[beginSignalName].length();i++)
             {
                 QString type=RuleMap[beginSignalName][0];
                 QString sectionname=RuleMap[beginSignalName][1];
                 QStringList SectionName=sectionname.split(",");
-                QString sectionend =SectionName[SectionName.length()-1];
+                QString sectionend =SectionName[SectionName.length()-1];//最后一个区段
                 QString selectendid = QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(sectionend);
                 QSqlQuery sqlendid(selectendid);
                 while(sqlendid.next())
                 {
                     endid=sqlendid.value(0).toString();
                 }
-                for(int a=0; a<SectionName.length();a++)
+                for(int a=0; a<SectionName.length();a++)//查看进路中的全部区段，如果有故障则信号不能重开
                 {
-                    qDebug()<<SectionName[a];
                     QString sectionid;
                     QString selectid= QString("select *from sectioninfo WHERE sectioninfo.SectionName = \"%1\"").arg(SectionName[a]);
                     QSqlQuery sqlid(selectid);
@@ -1594,222 +1464,71 @@ void InterLock::XinHaoCK(byte SignalID)
                         qDebug()<<sectionid;
                         if(SectionsDataMap.find(sectionid).value().sectionStatus==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01||SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
-                            MessageListAdd(3,SignalID,137);
+                            MessageListAdd(3,SignalID,40);//信号机故障，无法信号重开
                             return;
                         }
                         else if(endid==sectionid)//检查全部区段都没有故障占用
-                            {
+                        {
+                            UpdateSignal(SignalID,"signalLockStatus",0x02);
                             if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                             {
-                                if(type=='1')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
-                                }
-                                else if(type=='2')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0b;
-                                }
-                                else if(type=='3')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0e;
-                                }
-                                else if(type=='4')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                                }
-                                else if(type=='5')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x0d;
-                                }
-                                if(i==0)
-                                {
-                                    MessageListAdd(3,SignalID,38);
-                                }
-
+                                if(type=='1') UpdateSignal(SignalID,"signalStatus",0x0a);
+                                else if(type=='2') UpdateSignal(SignalID,"signalStatus",0x0b);
+                                else if(type=='3') UpdateSignal(SignalID,"signalStatus",0x0e);
+                                else if(type=='4') UpdateSignal(SignalID,"signalStatus",0x0d);
+                                else if(type=='5') UpdateSignal(SignalID,"signalStatus",0x0d);
                             }
                             else {
-                                if(type=='1')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x04;
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                }
-                                if(type=='2')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x02;
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                }
-                                if(type=='3')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x06;
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                }
-                                if(type=='4')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                }
-                                if(type=='5')
-                                {
-                                    SignalsDataMap.find(SignalID).value().signalStatus=0x08;
-                                    SignalsDataMap.find(SignalID).value().signalLockStatus=0x02;
-                                }
-                                if(i==0)
-                                {
-                                    MessageListAdd(3,SignalID,38);
-                                }
+                                if(type=='1') UpdateSignal(SignalID,"signalStatus",0x04);
+                                else if(type=='2') UpdateSignal(SignalID,"signalStatus",0x02);
+                                else if(type=='3') UpdateSignal(SignalID,"signalStatus",0x06);
+                                else if(type=='4') UpdateSignal(SignalID,"signalStatus",0x08);
+                                else if(type=='5') UpdateSignal(SignalID,"signalStatus",0x08);
                             }
+                            if(i==0) MessageListAdd(3,SignalID,38);//信号机开放
                         }
                     }
                 }
             }
         }
-        else
-        {
-            return;
-        }
+        else return;
     }
 }
 
-//【07操作·道岔总定反,单解锁】 √
+//【07操作·道岔总定反,单解锁】
 void InterLock::ZongDingFanDanJieSuo(byte Snum,byte Sstatus)
 {
-   int SwitchID;
-    QString switchid;
-//    int SwitchNameID;
-//    int SwitchName;
-    int at=0;
-    QString STID;//ID字符添加
-//    int switchid;
-    QString selectSwitchID = QString("select *from switch WHERE switch.SwitchNameID =%1").arg(Snum);
+    int SwitchID;
+    int switchpos;
+    QList<int> SwitchIds;
+    QList<int> SwitchPos;
+    QString selectSwitchID = QString("select *from switch WHERE switch.SwitchNameID =%1 ORDER BY SwitchID+0").arg(Snum);
     QSqlQuery sqlSwitchID(selectSwitchID);
     while(sqlSwitchID.next())
     {
         SwitchID=sqlSwitchID.value(0).toInt();
-        switchid=sqlSwitchID.value(0).toString();
-
-        if(Sstatus == 0x03)//道岔单锁
-                {
-                    if(0x01 == SwitchDataMap.find(SwitchID).value().switchLock)
-                    {
-                        return;
-                    }
-                    else
-                        {
-                        SwitchDataMap.find(SwitchID).value().switchLock = 0x01;
-                        if(at%2==1)
-                        {
-                            MessageListAdd(2,SwitchID,62);
-                        }
-
-                    }
-                    continue;
-                }
-                //道岔解锁
-                if(Sstatus == 0x04)
-                {
-                    if(0x02 == SwitchDataMap.find(SwitchID).value().switchLock)
-                    {
-                        return;
-                    }
-                    else
-                    {
-                        SwitchDataMap.find(SwitchID).value().switchLock = 0x02;
-                        if(at%2==1)
-                        {
-                            MessageListAdd(2,SwitchID,67);
-                        }
-                    }
-                    continue;
-
-                }
-
-                if(SwitchDataMap.find(SwitchID).value().SwitchLoss==0x01||SwitchDataMap.find(SwitchID).value().switchLock==0x01)//在道岔失表的或锁闭情况
-                {
-                    if(at==1)
-                    {
-                        MessageListAdd(2,SwitchID,136);
-                    }
-                    if(at==3)
-                    {
-                        MessageListAdd(2,SwitchID,136);
-                    }
-                    continue;
-                }
-        STID.append(switchid);
-        STID.append(",");
-        //如果道岔有故障或占用
-        if(SwitchDataMap.find(SwitchID).value().switchred==0x01||SwitchDataMap.find(SwitchID).value().switchOccupy==0x01||SwitchDataMap.find(SwitchID).value().switchwhite==0x01)
-        {
-            MessageListAdd(2,SwitchID,136);
-            STID.clear();
+        switchpos=sqlSwitchID.value(2).toInt();
+        if(Sstatus == 0x03) UpdateSwitch(SwitchID,"switchRoute",0x01,0);//道岔单锁
+        else if(Sstatus == 0x04) UpdateSwitch(SwitchID,"switchRoute",0x02,0); //道岔解锁
+        SwitchIds.append(SwitchID);
+        SwitchPos.append(switchpos);
+    }
+    for(int k=0;k<SwitchIds.count();k++){
+        if(SwitchDataMap.find(SwitchIds[k]).value().SwitchLoss==0x01||SwitchDataMap.find(SwitchIds[k]).value().switchLock==0x01 || SwitchDataMap.find(SwitchIds[k]).value().switchOccupy==0x01 || SwitchDataMap.find(SwitchIds[k]).value().switchwhite==0x01 || SwitchDataMap.find(SwitchIds[k]).value().switchred==0x01){
+            MessageListAdd(2,SwitchID,136);//有异常时，无法更改定反位
             return;
         }
     }
-    QStringList STIDlist =STID.split(",");
-    for(int q=0;STIDlist.length();q++)
-    {
-        QString u=STIDlist[q];
-        int w =u.toInt();
-        if(w==NULL)//防止最后一位为空
-        {
-            return;
-        }
-        //道岔定位
-         if(Sstatus == 0x01)
-        {
-            if(0x00 ==SwitchDataMap.find(w).value().switchPos)//如果是定位就启用
-            {
-
-                if(SwitchDataMap.find(w).value().switchStates == 0x01)
-                {
-                    return;
-                }
-                else {
-                    SwitchDataMap.find(w).value().switchStates = 0x01;
-                    MessageListAdd(2,w,60);
-                }
-
-            }
-            else if(0x01 == SwitchDataMap.find(w).value().switchPos)//如果是反位就不启用
-            {
-                if(SwitchDataMap.find(w).value().switchStates == 0x00)
-                {
-                    return;
-                }
-                else SwitchDataMap.find(w).value().switchStates = 0x00;
-            }
-        }
-        //道岔反位
-        if(Sstatus == 0x02)
-        {
-              if(0x01 == SwitchDataMap.find(w).value().switchPos)//如果是反位就启用
-            {
-                if(SwitchDataMap.find(w).value().switchStates == 0x01)
-                {
-                    return;
-                }
-                else {SwitchDataMap.find(w).value().switchStates = 0x01;
-                MessageListAdd(2,w,61);}
-            }
-
-            else if(0x00 == SwitchDataMap.find(w).value().switchPos)//如果是定位不启用
-            {
-                if(SwitchDataMap.find(w).value().switchStates == 0x00)
-                {
-                    return;
-                }
-                else SwitchDataMap.find(w).value().switchStates = 0x00;
-            }
+    for(int k=0;k<SwitchIds.count();k++){
+        if(Sstatus == 0x01){
+            UpdateSwitch(SwitchIds[k],"switchStates",0x01,SwitchPos[k]);//道岔定位
+        }else if(Sstatus == 0x02){
+            UpdateSwitch(SwitchIds[k],"switchStates",0x02,SwitchPos[k]);//道岔反位
         }
     }
 }
 
-//【08操作·灯丝断丝】 √
+//【08操作·灯丝断丝】 未改
 void InterLock::DSDS(byte SignalID, byte Status)
 {
     QString sectionid;
@@ -1828,6 +1547,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
         {
             QString type = RuleMap[beginSignalName][0];
             QString sectionNameList =RuleMap[beginSignalName][1];
+            QString TYPE =RuleMap[beginSignalName][4];//1为正常进路 2为引导进路
             QStringList sectionName = sectionNameList.split(",");
             QString sectionend =sectionName[sectionName.length()-1];
             QString selectendid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionend);
@@ -2211,7 +1931,6 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         }
                         if(i==0)//只执行一次
                         {
-//                            SignalsDataMap.find(SignalID).value().signalLockStatus=0x01;
                             MessageListAdd(3,SignalID,34);
                         }
                     }
@@ -2224,7 +1943,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x04;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -2234,7 +1953,7 @@ void InterLock::DSDS(byte SignalID, byte Status)
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
                         {
                             SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
+//                            SignalsDataMap.find(SignalID).value().signalStatus=0x0a;
                         }
                         else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00&&SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
                         {
@@ -3735,204 +3454,8 @@ void InterLock::DSDS(byte SignalID, byte Status)
             }
              }
     }
-    else
+    else//该信号机没有进路的时候
     {
-        if(SignalsDataMap.find(SignalID).value().signalType==0x01)//进站信号机
-        {
-            if(Status==0x01)
-            {
-                if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,31);
-                    SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                }
-            }
-            if(Status==0x02)
-            {
-                if(SignalsDataMap.find(SignalID).value().DSStatus==0x02)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,33);
-                    SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                }
-            }
-            if(Status==0x03)
-            {
-                if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                {
-                    return;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                {
-                    SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                {
-                    SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                {
-                     SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                }
-                MessageListAdd(3,SignalID,35);
-            }
-            if(Status==0x04)
-            {
-                if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,32);
-                    SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                }
-            }
-            if(Status==0x05)
-            {
-                if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,34);
-                    SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
-                }
-            }
-            if(Status==0x06)
-            {
-                if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                {
-                    return;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                {
-                    SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
-                    SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
-                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                }
-                MessageListAdd(3,SignalID,36);
-            }
-        }
-        if(SignalsDataMap.find(SignalID).value().signalType==0x02)//出站信号机
-        {
-            if(Status==0x01)
-            {
-                if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,31);
-                    SignalsDataMap.find(SignalID).value().DSStatus=0x01;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                }
-            }
-            if(Status==0x02)
-            {
-                if(SignalsDataMap.find(SignalID).value().DSStatus==0x02)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,33);
-                    SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x09;
-                }
-            }
-            if(Status==0x03)
-            {
-                if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                {
-                    return;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
-                {
-                    SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                {
-                    SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                {
-                     SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().signalStatus=0x01;
-                }
-                MessageListAdd(3,SignalID,35);
-            }
-            if(Status==0x04)
-            {
-                if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,32);
-                    SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
-                }
-            }
-            if(Status==0x05)
-            {
-                if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
-                    return;
-                }
-                else
-                {
-                    MessageListAdd(3,SignalID,34);
-                    SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
-                }
-            }
-            if(Status==0x06)
-            {
-                if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                {
-                    return;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
-                {
-                    SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
-                    SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
-                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
-                }
-                MessageListAdd(3,SignalID,36);
-            }
-        }
         if(SignalsDataMap.find(SignalID).value().signalType==0x03)//调车信号机
         {
             if(Status==0x01)
@@ -3967,21 +3490,11 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 {
                     return;
                 }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                else
                 {
                     SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                    SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                {
                     SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
                     SignalsDataMap.find(SignalID).value().signalStatus=0x07;
-                }
-                else if(SignalsDataMap.find(SignalID).value().DSStatus==0x01&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
-                {
-                     SignalsDataMap.find(SignalID).value().DSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().signalStatus=0x07;
                 }
                 MessageListAdd(3,SignalID,35);
             }
@@ -4015,27 +3528,97 @@ void InterLock::DSDS(byte SignalID, byte Status)
                 {
                     return;
                 }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                else
                 {
                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
-                {
                     SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                 }
-                else if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                MessageListAdd(3,SignalID,36);
+            }
+        }
+        else
+        {
+            if(Status==0x01)
+            {
+                if(SignalsDataMap.find(SignalID).value().DSStatus==0x01)
                 {
-                     SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
-                      SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
+                    return;
+                }
+                else
+                {
+                    MessageListAdd(3,SignalID,31);
+                    SignalsDataMap.find(SignalID).value().DSStatus=0x01;
+                    SignalsDataMap.find(SignalID).value().signalStatus=0x09;
+                }
+            }
+            if(Status==0x02)
+            {
+                if(SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x01)
+                {
+                    return;
+                }
+                else
+                {
+                    MessageListAdd(3,SignalID,33);
+                    SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x01;
+                }
+            }
+            if(Status==0x03)
+            {
+                if(SignalsDataMap.find(SignalID).value().DSStatus==0x00&&SignalsDataMap.find(SignalID).value().RedAllDSStatus==0x00)
+                {
+                    return;
+                }
+                else
+                {
+                    SignalsDataMap.find(SignalID).value().DSStatus=0x00;
+                    SignalsDataMap.find(SignalID).value().RedAllDSStatus=0x00;
+                    SignalsDataMap.find(SignalID).value().signalStatus=0x01;
+                    MessageListAdd(3,SignalID,35);
+                }
+            }
+            if(Status==0x04)
+            {
+                if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x01)
+                {
+                    return;
+                }
+                else
+                {
+                    MessageListAdd(3,SignalID,32);
+                    SignalsDataMap.find(SignalID).value().GreenDSStatus=0x01;
+                }
+            }
+            if(Status==0x05)
+            {
+                if(SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x01)
+                {
+                    return;
+                }
+                else
+                {
+                    MessageListAdd(3,SignalID,34);
+                    SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x01;
+                }
+            }
+            if(Status==0x06)
+            {
+                if(SignalsDataMap.find(SignalID).value().GreenDSStatus==0x00&&SignalsDataMap.find(SignalID).value().GreenAllDSStatus==0x00)
+                {
+                    return;
+                }
+                else
+                {
+                    SignalsDataMap.find(SignalID).value().GreenDSStatus=0x00;
+                    SignalsDataMap.find(SignalID).value().GreenAllDSStatus=0x00;
                 }
                 MessageListAdd(3,SignalID,36);
             }
         }
     }
-
 }
 
-//【09操作·灯丝复原】（待测试）√
+//【09操作·灯丝复原】 未改
 void InterLock::DSFY(byte Status)
 {
     int SignalID;
@@ -4109,20 +3692,12 @@ void InterLock::DSFY(byte Status)
 
 }
 
-//【10操作·区段占用】 √
+//【10操作·区段占用】 √ （改
 void InterLock::ZhanYong(byte sectionID)//nameid
 {
     QString SectionName;
     QString id = QString::number(sectionID, 10);
-    if(SectionsDataMap.find(id).value().sectionStatus==0x01)
-    {
-        MessageListAdd(1,sectionID,1);
-        SectionsDataMap.find(id).value().sectionStatus=0x02;
-    }
-    else{
-        MessageListAdd(1,sectionID,7);
-        SectionsDataMap.find(id).value().sectionStatus=0x01;
-    }
+    UpdateSection(id,"sectionStatus",0);//区段占用
     QList<int> forswithc;
     QString selectSeName =QString("select *from section WHERE section.sectionnameid=%1").arg(id);
     QSqlQuery sqlName(selectSeName);
@@ -4130,26 +3705,17 @@ void InterLock::ZhanYong(byte sectionID)//nameid
     {
         SectionName=sqlName.value(1).toString();
         int sectionforswtich = sqlName.value(4).toInt();
-        if(sectionforswtich != NULL){
-            forswithc.append(sectionforswtich);
-        }
+        if(sectionforswtich != NULL) forswithc.append(sectionforswtich);
     }
     for(int i=0; i<forswithc.length();i++){
-        if(SwitchDataMap.find(forswithc[i]).value().switchStates == 0x01){
-            if(SwitchDataMap.find(forswithc[i]).value().switchOccupy == 0x01){
-                SwitchDataMap.find(forswithc[i]).value().switchOccupy = 0x02;
-            }else{
-                SwitchDataMap.find(forswithc[i]).value().switchOccupy = 0x01;
-            }
-        }
+        if(SwitchDataMap.find(forswithc[i]).value().switchStates == 0x01) UpdateSwitch(forswithc[i],"switchOccupy",0,0);//道岔占用
     }
-
     QMap<QString,QList<QString>>::iterator ruledata;
-     //int i=0;
     for(ruledata = RuleMap.begin();ruledata != RuleMap.end();++ruledata)
     {
         if(ruledata.value()[1].contains(SectionName))
         {
+            QString type =ruledata.value()[4];
             QString signalname = ruledata.key();
             int signalid;
             QString signalsql = QString("select * from signalinfo WHERE SingalName = \"%1\"").arg(signalname);
@@ -4158,18 +3724,29 @@ void InterLock::ZhanYong(byte sectionID)//nameid
             {
                 signalid = querySignalid.value(0).toInt();
             }
-            if(SectionsDataMap.find(id).value().sectionStatus==0x01)
+            if(type=='1')
             {
-                SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
-                SignalsDataMap.find(signalid).value().signalStatus = 0x01;
-                MessageListAdd(3,signalid,30);
+                if(SectionsDataMap.find(id).value().sectionStatus==0x01)
+                {
+                    UpdateSignal(signalid,"signalLockStatus",0x01);
+                    UpdateSignal(signalid,"signalStatus",0x01);
+                }
+                else if(SectionsDataMap.find(id).value().sectionStatus==0x02)
+                {
+                    UpdateSignal(signalid,"signalLockStatus",0x01);
+                }
             }
-            else if(SectionsDataMap.find(id).value().sectionStatus==0x02)
+            if(type=='2')//引导进路只有第一个区段占用时信号灯才关闭
             {
-                SignalsDataMap.find(signalid).value().signalLockStatus = 0x02;
+                QString sectionfirst =ruledata.value()[1].split(",").first();
+                QString sectionid=SelectIdForName(sectionfirst);
+                if(id==sectionid&&SectionsDataMap.find(id).value().sectionStatus==0x01)
+                {
+                    UpdateSignal(signalid,"signalLockStatus",0x01);
+                    UpdateSignal(signalid,"signalStatus",0x01);
+                }
             }
         }
-        //i++
     }
 }
 
@@ -4185,18 +3762,19 @@ void InterLock::SwitchLoss(byte SwitchName)
         {
            int SId = sqlSwitchNames.value(0).toInt();//失表的道岔ID
            int SName = sqlSwitchNames.value(1).toInt();//失表的道岔ID
+           int pos = sqlSwitchNames.value(2).toInt();//失表的道岔ID
+           UpdateSwitch(SId,"switchStates",0x01,pos);//定反位重置为定位
+
            if(k % 2 == 0){
-               SwitchDataMap.find(SId).value().switchStates = 0x01;
-               SwitchDataMap.find(SId).value().switchwhite = 0x01;
+               UpdateSwitch(SId,"switchwhite",0x01,pos);//重置后地定位绿光带
            }else{
-               SwitchDataMap.find(SId).value().switchStates = 0x00;
-               SwitchDataMap.find(SId).value().switchwhite = 0x00;
+               UpdateSwitch(SId,"switchwhite",0x00,pos);//重置后地反位绿光带取消
            }
-           SwitchDataMap.find(SId).value().SwitchLoss=0x01;//将失表道岔和联动道岔全部失表
-           SwitchDataMap.find(SId).value().switchRoute=0x02;//失表道岔解除进路锁闭
+           UpdateSwitch(SId,"SwitchLoss",0x01,pos);//将失表道岔和联动道岔全部失表
+           UpdateSwitch(SId,"switchLock",0x02,pos);//失表道岔解除进路锁闭
            QString SectionsId = SwitchStationDataMap.find(SName).value();//进路道岔所对应地区段ID
-           SectionsDataMap.find(SectionsId).value().SectionWhiteObstacle = 0x03;//失表绿光带(主轨绿光带，分轨正常)
-           SectionsDataMap.find(SectionsId).value().LockStatus = 0x02;//并解除锁闭
+           UpdateSection(SectionsId,"SectionWhiteObstacle",0x03);//失表绿光带(主轨绿光带，分轨正常)
+           UpdateSection(SectionsId,"LockStatus",0x02);//并解除锁闭
            k++;
         }
     }else{//否则将失表道岔和联动道岔失表、重置定反位初始化状态
@@ -4206,12 +3784,9 @@ void InterLock::SwitchLoss(byte SwitchName)
         while(sqlSwitchNames.next())
         {
            int SId = sqlSwitchNames.value(0).toInt();//失表的道岔ID
-           if(k % 2 == 0){
-               SwitchDataMap.find(SId).value().switchStates = 0x01;
-           }else{
-               SwitchDataMap.find(SId).value().switchStates = 0x00;
-           }
-           SwitchDataMap.find(SId).value().SwitchLoss=0x01;//将失表道岔和联动道岔全部失表
+           int pos = sqlSwitchNames.value(2).toInt();//失表的道岔ID
+           UpdateSwitch(SId,"switchStates",0x01,pos);//定反位重置为定位
+           UpdateSwitch(SId,"SwitchLoss",0x01,pos);//将失表道岔和联动道岔全部失表
            k++;
         }
     }
@@ -4273,16 +3848,16 @@ void InterLock::SwitchLoss(byte SwitchName)
                         breakIntTwo = true;
                     }
                     if(breakInt != 1){
-                        SectionsDataMap.find(sectionid).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
+                        UpdateSection(sectionid,"SectionWhiteObstacle",0x01);//失表绿光带(主轨绿光带，分轨正常)
                         QString AStr = QString::number(idPosA, 10);
                         QString BStr = QString::number(idPosB, 10);
-                        if(SwitchStr.contains(AStr)) SwitchDataMap.find(idPosA).value().switchwhite=0x01;//失表道岔解除进路锁闭
-                        if(SwitchStr.contains(BStr)) SwitchDataMap.find(idPosB).value().switchwhite=0x01;//失表道岔解除进路锁闭
+                        if(SwitchStr.contains(AStr)) UpdateSwitch(idPosA,"switchwhite",0x01,0);//失表道岔解除进路锁闭
+                        if(SwitchStr.contains(BStr)) UpdateSwitch(idPosB,"switchwhite",0x01,0);//失表道岔解除进路锁闭
                     }else if(breakIntTwo == true){
                         break;
                     }
                 }else{
-                    SectionsDataMap.find(SectionIdForName).value().SectionWhiteObstacle = 0x01;//失表绿光带(主轨绿光带，分轨正常)
+                    UpdateSection(SectionIdForName,"SectionWhiteObstacle",0x01);//失表绿光带(主轨绿光带，分轨正常)
                 }
             }
         }
@@ -4313,107 +3888,12 @@ void InterLock::SwitchNoLoss(byte SwitchName){
     while(sqlSwitchid.next())
     {
         switchid = sqlSwitchid.value(0).toInt();
-        SwitchDataMap.find(switchid).value().SwitchLoss=0x02;
-        MessageListAdd(2,switchID,134);
+        UpdateSwitch(switchid,"SwitchLoss",0x02,0);//将道岔失表取消
     }
 }
 
-//【13操作·模拟行车】——作废
+//【13操作·模拟行车】
 void InterLock::UnlockState(byte beginSignalID)
-{
-    QStringList OneSwitch = {"1","10","15","16","2","23","24","27","28","51","52","9"};
-    QString SectionId;
-    QString SectionIdB;
-    QString beginSignalName = QString();
-    QString selectBeginSignalStr = QString("select * from signalinfo WHERE signalinfo.SignalID = %1").arg(beginSignalID);
-    QSqlQuery queryBeginSignal(selectBeginSignalStr);
-    while(queryBeginSignal.next())
-    {
-        beginSignalName = queryBeginSignal.value(3).toString();
-    }
-    if(RuleMap.find(beginSignalName).key() != NULL){
-       QString Sections = RuleMap.find(beginSignalName).value()[1];
-       QStringList SwitchIds = RuleMap.find(beginSignalName).value()[3].split(",");
-       int SwitchIndex = 0;
-       QString switchid;
-       QString switchidB;
-       QStringList sectionlist = Sections.split(",");
-       for(int i=0;i<2*sectionlist.length()-1;i++){
-           int n=(i+1)/2;           //修改道岔的占用和锁闭
-           SectionId = SelectIdForName(sectionlist[n]);
-           if(n-1>=0)
-           {
-               SectionIdB = SelectIdForName(sectionlist[n-1]);
-           }
-           int NameCount = SelectCountForName(sectionlist[n]);
-           int NameCountB = 0;
-           if(n-1>=0){
-               NameCountB = SelectCountForName(sectionlist[n-1]);
-           }
-           //修改区段的占用和锁闭
-           if(i == 0)
-           {
-               UpdateSectionStatus(SectionId,0x01);
-               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
-                   switchid = SwitchIds[SwitchIndex];
-                   UpdateSwitchOccupy(switchid.toInt(),0x01);
-               }
-           }
-           else
-           {
-               UpdateSectionStatus(SectionId,0x01);
-               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
-                   switchid = SwitchIds[SwitchIndex];
-                   UpdateSwitchOccupy(switchid.toInt(),0x01);
-               }
-               if(i % 2 == 0)
-               {
-                   UpdateSectionStatus(SectionIdB,0x02);
-                   UpdateSectionLock(SectionIdB,0x02);
-                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
-                       switchid = SwitchIds[SwitchIndex];
-                       UpdateSwitchOccupy(switchid.toInt(),0x02);//道岔解除占用；
-                       UpdateSwitchLock(switchid.toInt(),0x02);//道岔解除锁闭；
-                       if((SwitchIndex+1) < SwitchIds.length()){
-                           switchidB = SwitchIds[SwitchIndex+1];
-                           UpdateSwitchLock(switchidB.toInt(),0x02);//联动道岔解除锁闭；
-                       }
-                       if(OneSwitch.contains(switchid)){//如果是非带动道岔，自增一
-                           SwitchIndex++;
-                       }else{//如果是带动道岔，自增二
-                           SwitchIndex+=2;
-                       }
-                   }
-               }
-               if(i % 2 != 0)
-               {
-                   UpdateSectionStatus(SectionIdB,0x01);
-                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
-                       if(OneSwitch.contains(switchid) && (SwitchIndex+1) < SwitchIds.length()){//如果是非带动道岔，自增一
-                           switchidB = SwitchIds[SwitchIndex+1];
-                       }else if((SwitchIndex+2) < SwitchIds.length()){//如果是带动道岔，自增二
-                           switchidB = SwitchIds[SwitchIndex+2];
-                       }else{
-                           switchidB = "";
-                       }
-                       if(switchidB != ""){
-                           UpdateSwitchOccupy(switchidB.toInt(),0x01);//道岔被占用；
-                       }
-                   }
-               }
-           }
-           if(i == 2*sectionlist.length()-2){
-                UpdateSectionLock(SectionId,0x02);
-           }
-           //延迟一秒
-           sleep(1000);
-        }
-        RuleDataMap.remove(beginSignalName);
-    }
-}
-
-//【1测试·模拟行车】——应用
-void InterLock::TestUnlockState(byte beginSignalID)
 {
     QList<int> OneSwitch = {1,10,15,16,2,23,24,27,28,51,52,9};
     QString SectionId;
@@ -4425,67 +3905,122 @@ void InterLock::TestUnlockState(byte beginSignalID)
     {
         beginSignalName = queryBeginSignal.value(3).toString();
     }
-    if(RuleMap.find(beginSignalName).key() != NULL){
+    if(RuleMap.find(beginSignalName).key() != NULL)
+    {
+        QString type =RuleMap[beginSignalName][4];//1为正常进路，2位引导进路
        QString Sections = RuleMap.find(beginSignalName).value()[1];
        QStringList sectionlist = Sections.split(",");
        int SwitId;
-       for(int i=0;i<2*sectionlist.length()-1;i++){
-           int n=(i+1)/2;           //修改道岔的占用和锁闭
-           SectionId = SelectIdForName(sectionlist[n]);//目前行车的区段ID
-           SwitId = TestStationSwitchFZ(SectionId,beginSignalName);//目前行车的区段ID所对应地道岔
-           if(n-1>=0)
-           {
-               SectionIdB = SelectIdForName(sectionlist[n-1]);
-           }
-           int NameCount = SelectCountForName(sectionlist[n]);
-           int NameCountB = 0;
-           if(n-1>=0){
-               NameCountB = SelectCountForName(sectionlist[n-1]);
-           }
-           //修改区段的占用和锁闭
-           if(i == 0)
-           {
-               UpdateSectionStatus(SectionId,0x01);
-               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
-                   UpdateSwitchOccupy(SwitId,0x01);
-               }
-           }
-           else
-           {
-               UpdateSectionStatus(SectionId,0x01);
-               if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
-                   UpdateSwitchOccupy(SwitId,0x01);
-               }
-               if(i % 2 == 0)
+       if(type=='1')
+       {
+           for(int i=0;i<2*sectionlist.length()-1;i++){
+               int n=(i+1)/2;           //修改道岔的占用和锁闭
+               SectionId = SelectIdForName(sectionlist[n]);//目前行车的区段ID
+               SwitId = TestStationSwitchFZ(SectionId,beginSignalName);//目前行车的区段ID所对应地道岔
+               if(n-1>=0)
                {
-                   UpdateSectionStatus(SectionIdB,0x02);
-                   UpdateSectionLock(SectionIdB,0x02);
-                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
-//                       UpdateSwitchOccupy(SwitId,0x02);//道岔解除占用；
-//                       UpdateSwitchLock(SwitId,0x02);//道岔解除锁闭；
-                       int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
-                       UpdateSwitchLock(SwitIdB,0x02);//联动道岔解除锁闭；
-                       UpdateSwitchOccupy(SwitIdB,0x02);//道岔解除占用；
+                   SectionIdB = SelectIdForName(sectionlist[n-1]);
+               }
+               int NameCount = SelectCountForName(sectionlist[n]);
+               int NameCountB = 0;
+               if(n-1>=0){
+                   NameCountB = SelectCountForName(sectionlist[n-1]);
+               }
+               //修改区段的占用和锁闭
+               if(i == 0)
+               {
+                   UpdateSectionStatus(SectionId,0x01);
+                   if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                       UpdateSwitchOccupy(SwitId,0x01);
                    }
                }
-               if(i % 2 != 0)
+               else
                {
-                   UpdateSectionStatus(SectionIdB,0x01);
-                   if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
-                       int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
-                       if(OneSwitch.contains(SwitIdB)){//如果是非带动道岔，自增一
-                           UpdateSwitchOccupy(SwitIdB,0x01);//道岔被占用；
+                   UpdateSectionStatus(SectionId,0x01);
+                   if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                       UpdateSwitchOccupy(SwitId,0x01);
+                   }
+                   if(i % 2 == 0)
+                   {
+                       UpdateSectionStatus(SectionIdB,0x02);
+                       UpdateSectionLock(SectionIdB,0x02);
+                       if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                           int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
+                           UpdateSwitchLock(SwitIdB,0x02);//联动道岔解除锁闭；
+                           UpdateSwitchOccupy(SwitIdB,0x02);//道岔解除占用；
+                       }
+                   }
+                   if(i % 2 != 0)
+                   {
+                       UpdateSectionStatus(SectionIdB,0x01);
+                       if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                           int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
+                           if(OneSwitch.contains(SwitIdB)){//如果是非带动道岔，自增一
+                               UpdateSwitchOccupy(SwitIdB,0x01);//道岔被占用；
+                           }
                        }
                    }
                }
-           }
-           if(i == 2*sectionlist.length()-2){
-                UpdateSectionLock(SectionId,0x02);
-           }
-           //延迟一秒
-           sleep(1000);
-        }
-        RuleDataMap.remove(beginSignalName);
+               if(i == 2*sectionlist.length()-2){
+                    UpdateSectionLock(SectionId,0x02);
+               }
+               //延迟一秒
+               sleep(1000);
+            }
+            RuleMap.remove(beginSignalName);
+       }
+       if(type=='2')
+       {
+           for(int i=0;i<2*sectionlist.length()-1;i++)
+           {
+               int n=(i+1)/2;           //修改道岔的占用和锁闭
+               SectionId = SelectIdForName(sectionlist[n]);//目前行车的区段ID
+               SwitId = TestStationSwitchFZ(SectionId,beginSignalName);//目前行车的区段ID所对应地道岔
+               if(n-1>=0)
+               {
+                   SectionIdB = SelectIdForName(sectionlist[n-1]);
+               }
+               int NameCount = SelectCountForName(sectionlist[n]);
+               int NameCountB = 0;
+               if(n-1>=0){
+                   NameCountB = SelectCountForName(sectionlist[n-1]);
+               }
+               //修改区段的占用和锁闭
+               if(i == 0)
+               {
+                   UpdateSectionStatus(SectionId,0x01);
+                   if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                       UpdateSwitchOccupy(SwitId,0x01);
+                   }
+               }
+               else
+               {
+                   UpdateSectionStatus(SectionId,0x01);
+                   if(NameCount > 1){//如果有分轨，则有所属道岔，所属道岔
+                       UpdateSwitchOccupy(SwitId,0x01);
+                   }
+                   if(i % 2 == 0)
+                   {
+                       UpdateSectionStatus(SectionIdB,0x02);
+                       if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                           int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
+                           UpdateSwitchOccupy(SwitIdB,0x02);//道岔解除占用；
+                       }
+                   }
+                   if(i % 2 != 0)
+                   {
+                       UpdateSectionStatus(SectionIdB,0x01);
+                       if(NameCountB > 1){//如果有分轨，则有所属道岔，所属道岔
+                           int SwitIdB = TestStationSwitchFZ(SectionIdB,beginSignalName);//目前行车的区段ID所对应地道岔
+                           if(OneSwitch.contains(SwitIdB)){//如果是非带动道岔，自增一
+                               UpdateSwitchOccupy(SwitIdB,0x01);//道岔被占用；
+                           }
+                       }
+                   }
+               }
+               sleep(1000);
+            }
+       }
     }
 }
 
@@ -4507,22 +4042,15 @@ int InterLock::TestStationSwitchFZ(QString SectionId,QString beginSignalName){
     }
 }
 
-//【14操作·红白光带故障】  √
+//【14操作·红白光带故障】  √（改
 void InterLock::HBGZ(byte sectionnameid, byte status)
 {
     QString sectionName;
-    int sectionmenameid;
     int sectionforswitch;
     QString sectionid;
-    QString sectionendid;
+    QString sectionfirstid;
     int signalid;
     QString id =QString::number(sectionnameid,10);
-    QString selectmename = QString("select *from section WHERE section.sectionnameid=%1").arg(sectionnameid);
-    QSqlQuery sqlmename(selectmename);
-    while(sqlmename.next())
-    {
-        sectionmenameid = sqlmename.value(3).toInt();
-    }
     if(status==0x01)//红光带故障
     {
         if(SectionsDataMap.find(id).value().SectionRedObstacle==0x01)
@@ -4531,7 +4059,7 @@ void InterLock::HBGZ(byte sectionnameid, byte status)
         }
         else
         {
-            MessageListAdd(1,sectionmenameid,3);
+            MessageListAdd(1,sectionnameid,3);
             SectionsDataMap.find(id).value().SectionRedObstacle=0x01;
         }
     }
@@ -4543,7 +4071,7 @@ void InterLock::HBGZ(byte sectionnameid, byte status)
             }
             else
             {
-                MessageListAdd(1,sectionmenameid,4);
+                MessageListAdd(1,sectionnameid,4);
                 SectionsDataMap.find(id).value().SectionWhiteObstacle=0x01;
             }
     }
@@ -4555,7 +4083,7 @@ void InterLock::HBGZ(byte sectionnameid, byte status)
         }
         else
         {
-            MessageListAdd(1,sectionmenameid,8);
+            MessageListAdd(1,sectionnameid,8);
             SectionsDataMap.find(id).value().SectionRedObstacle=0x02;
             SectionsDataMap.find(id).value().SectionWhiteObstacle=0x02;
         }
@@ -4574,7 +4102,7 @@ void InterLock::HBGZ(byte sectionnameid, byte status)
         }
         for(int i=0;i<seforsw.length();i++)
         {
-            if(SwitchDataMap.find(seforsw[i]).value().switchStates==0x01)//反位
+            if(SwitchDataMap.find(seforsw[i]).value().switchStates==0x01)//被启用的道岔
             {
                 if(status==0x01)
                 {
@@ -4597,44 +4125,49 @@ void InterLock::HBGZ(byte sectionnameid, byte status)
     {
         if(ruledata.value()[1].contains(sectionName))
         {
-            QString signalname =ruledata.key();
+            QString signalname =ruledata.key();//进路起始信号机名称
             QString sectionNameList = ruledata.value()[1];
             QStringList sectionName = sectionNameList.split(",");
-            QString sectionend = sectionName[sectionName.length()-1];
-            QString selectsectionendid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionend);
-            QSqlQuery sqlsectionendid(selectsectionendid);
-            while(sqlsectionendid.next())
+            QString sectionfirst = sectionName[0];
+            QString selectsectionfirstid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionfirst);
+            QSqlQuery sqlsectionfirstid(selectsectionfirstid);
+            while(sqlsectionfirstid.next())
             {
-                sectionendid=sqlsectionendid.value(0).toString();
+                sectionfirstid=sqlsectionfirstid.value(0).toString();
             }
-            for(int as=0;as<sectionName.length();as++)
+            QString selectsignalid =QString("select * from signalinfo WHERE SingalName = \"%1\"").arg(signalname);
+            QSqlQuery sqlsignalid(selectsignalid);
+            while(sqlsignalid.next())
             {
-                QString selectsectionid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionName[as]);
-                QSqlQuery sqlsectionid(selectsectionid);
-                while(sqlsectionid.next())
+                signalid =sqlsignalid.value(0).toInt();
+            }
+            if(RuleMap[signalname][4]=='1')//正常进路
+            {
+                for(int as=0;as<sectionName.length();as++)
                 {
-                    sectionid = sqlsectionid.value(0).toString();
-                    QString selectsignalid =QString("select * from signalinfo WHERE SingalName = \"%1\"").arg(signalname);
-                    QSqlQuery sqlsignalid(selectsignalid);
-                    while(sqlsignalid.next())
+                    QString selectsectionid =QString("select *from sectioninfo WHERE sectioninfo.SectionName=\"%1\"").arg(sectionName[as]);
+                    QSqlQuery sqlsectionid(selectsectionid);
+                    while(sqlsectionid.next())
                     {
-                        signalid =sqlsignalid.value(0).toInt();
+                        sectionid = sqlsectionid.value(0).toString();
+                        if(SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01)
+                        {
+                            SignalsDataMap.find(signalid).value().signalStatus=0x01;
+                            SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
+                            MessageListAdd(3,signalid,30);
+                            return;
+                        }
                     }
-                    if(SectionsDataMap.find(sectionid).value().SectionWhiteObstacle==0x01||SectionsDataMap.find(sectionid).value().SectionRedObstacle==0x01)
-                    {
-                        SignalsDataMap.find(signalid).value().signalStatus=0x01;
-                        SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
-                        MessageListAdd(3,signalid,30);
-                        return;
-                    }
-                    if(sectionendid==sectionid)
-                    {
-                        SignalsDataMap.find(signalid).value().signalLockStatus = 0x01;
-                    }
+                }
 
+            }
+            if(RuleMap[signalname][4]=='2')//引导进路
+            {
+                if(SectionsDataMap.find(sectionfirstid).value().SectionRedObstacle==0x01)
+                {
+                    SignalsDataMap.find(signalid).value().signalStatus=0x01;
                 }
             }
-
         }
     }
 }
@@ -4838,7 +4371,7 @@ void InterLock::UpdateSwitchLock(int switchid,byte data){
     }
 }
 
-//【10辅助·修改区段的占用】
+//【10辅助·修改区段的占用(模拟行车专用)】
 void InterLock::UpdateSectionStatus(QString sectionid,byte data){
     if(SectionsDataMap.find(sectionid).value().sectionStatus != data){
         SectionsDataMap.find(sectionid).value().sectionStatus = data;
@@ -4877,16 +4410,13 @@ void InterLock::UpdateSection(QString SectionId,QString Attribute,byte data){
                 MessageListAdd(1,SectionId.toInt(),10);//区段隐性锁闭（带动道岔，防护道岔）
             }
         }
-    }else if(Attribute == "SectionStatus"){//修改区段占用
-        if(SectionsDataMap.find(SectionId).value().sectionStatus != data){
-            SectionsDataMap.find(SectionId).value().sectionStatus = data;
-            if(data == 0x01){
-                MessageListAdd(1,SectionId.toInt(),1);//区段占用
-            }else if(data == 0x02){
-                MessageListAdd(1,SectionId.toInt(),7);//区段解除占用
-            }else if(data == 0x03){
-                MessageListAdd(1,SectionId.toInt(),11);//区段隐性占用（带动道岔，防护道岔）
-            }
+    }else if(Attribute == "sectionStatus"){//修改区段占用
+        if(SectionsDataMap.find(SectionId).value().sectionStatus != 0x01){
+           SectionsDataMap.find(SectionId).value().sectionStatus = 0x01;
+           MessageListAdd(1,SectionId.toInt(),1);//区段占用
+        }else{
+            SectionsDataMap.find(SectionId).value().sectionStatus = 0x02;
+            MessageListAdd(1,SectionId.toInt(),7);//区段解除占用
         }
     }else if(Attribute == "SectionWhiteObstacle"){//修改区段白光带故障
         if(SectionsDataMap.find(SectionId).value().SectionWhiteObstacle != data){
@@ -4941,37 +4471,69 @@ void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switc
                     SwitchDataMap.find(45).value().switchRoute = data;//道岔被占用；
                 }
             }
+            if(SwitchId == 4 || SwitchId == 8 || SwitchId == 38 || SwitchId == 42){//防护定位
+                if(SwitchId == 4){
+                    SwitchDataMap.find(41).value().switchRoute = data;//道岔被占用；
+                }else if(SwitchId == 8){
+                    SwitchDataMap.find(37).value().switchRoute = data;//道岔被占用；
+                }else if(SwitchId == 38){
+                    SwitchDataMap.find(7).value().switchRoute = data;//道岔被占用；
+                }else if(SwitchId == 42){
+                    SwitchDataMap.find(3).value().switchRoute = data;//道岔被占用；
+                }
+            }
+//            if(SwitchId == 3 || SwitchId == 7 || SwitchId == 37 || SwitchId == 41){//防护定位
+//                if(SwitchId == 3){
+//                    SwitchDataMap.find(41).value().switchRoute = data;//道岔被占用；
+//                }else if(SwitchId == 7){
+//                    SwitchDataMap.find(37).value().switchRoute = data;//道岔被占用；
+//                }else if(SwitchId == 37){
+//                    SwitchDataMap.find(7).value().switchRoute = data;//道岔被占用；
+//                }else if(SwitchId == 41){
+//                    SwitchDataMap.find(3).value().switchRoute = data;//道岔被占用；
+//                }
+//            }
         }
     }else if(Attribute == "switchStates"){//修改道岔定反位
         if(SwitchDataMap.find(SwitchId).value().switchStates != data){
-            if(switchPos == 0x00){//道岔定位
-                if(data == 0x01){
-                    SwitchDataMap.find(SwitchId).value().switchStates = 0x01;//启用该道岔的定位
-                    SwitchDataMap.find(SwitchId + 1).value().switchStates = 0x00;//关闭该道岔的反位
-                    MessageListAdd(2,SwitchId,60);//道岔定位操作
-                }else if(data == 0x02){
-                    SwitchDataMap.find(SwitchId).value().switchStates = 0x01;//启用该道岔的反位
-                    SwitchDataMap.find(SwitchId - 1).value().switchStates = 0x00;//关闭该道岔的定位
-                    MessageListAdd(2,SwitchId,61);//道岔反位操作
+            if(switchPos == 0x00){//如果是定位道岔
+                if(data == 0x01){//要求道岔定位
+                    if(SwitchDataMap.find(SwitchId).value().switchStates != 0x01){
+                        SwitchDataMap.find(SwitchId).value().switchStates = 0x01;//定位道岔显示
+                        SwitchDataMap.find(SwitchId + 1).value().switchStates = 0x00;//反位道岔隐藏
+                        MessageListAdd(2,SwitchId,60);//道岔定位操作
+                    }
+                }else if(data == 0x02){//要求道岔反位
+                    if(SwitchDataMap.find(SwitchId).value().switchStates != 0x00){
+                        SwitchDataMap.find(SwitchId).value().switchStates = 0x00;//定位道岔隐藏
+                        SwitchDataMap.find(SwitchId + 1).value().switchStates = 0x01;//反位道岔显示
+                        MessageListAdd(2,SwitchId,61);//道岔反位操作
+                    }
+
                 }
-            }else if(switchPos == 0x01){//道岔反位
-                if(data == 0x01){
-                    MessageListAdd(2,SwitchId,62);//道岔锁闭
-                }else if(data == 0x02){
-                    MessageListAdd(2,SwitchId,71);//道岔解除锁闭
-                }else if(data == 0x03){
-                    MessageListAdd(2,SwitchId,6);//道岔隐性锁闭
+            }else if(switchPos == 0x01){//如果是反位道岔
+                if(data == 0x01){//要求道岔定位
+                    if(SwitchDataMap.find(SwitchId).value().switchStates != 0x00){
+                        SwitchDataMap.find(SwitchId).value().switchStates = 0x00;//反位道岔隐藏
+                        SwitchDataMap.find(SwitchId - 1).value().switchStates = 0x01;//定位道岔显示
+                        MessageListAdd(2,SwitchId,60);//道岔定位操作
+                    }
+                }else if(data == 0x02){//要求道岔反位
+                    if(SwitchDataMap.find(SwitchId).value().switchStates != 0x00){
+                        SwitchDataMap.find(SwitchId).value().switchStates = 0x01;//反位道岔显示
+                        SwitchDataMap.find(SwitchId - 1).value().switchStates = 0x00;//定位道岔隐藏
+                        MessageListAdd(2,SwitchId,61);//道岔反位操作
+                    }
                 }
             }
         }
     }else if(Attribute == "blockStatus"){//修改道岔封锁
-        if(SwitchDataMap.find(SwitchId).value().blockStatus != data){
-            SwitchDataMap.find(SwitchId).value().blockStatus = data;
-            if(data == 0x01){
-                MessageListAdd(2,SwitchId,65);//道岔封锁
-            }else if(data == 0x02){
-                MessageListAdd(2,SwitchId,73);//道岔解除封锁
-            }
+        if(SwitchDataMap.find(SwitchId).value().blockStatus != 0x01){
+            SwitchDataMap.find(SwitchId).value().blockStatus = 0x01;
+            MessageListAdd(2,SwitchId,65);//道岔封锁
+        }else{
+            SwitchDataMap.find(SwitchId).value().blockStatus = 0x02;
+            MessageListAdd(2,SwitchId,73);//道岔封锁
         }
     }else if(Attribute == "SwitchLoss"){//修改道岔失表
         if(SwitchDataMap.find(SwitchId).value().SwitchLoss != data){
@@ -4979,29 +4541,28 @@ void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switc
             if(data == 0x01){
                 MessageListAdd(2,SwitchId,63);//道岔失表
             }else if(data == 0x02){
-                MessageListAdd(2,SwitchId,74);//道岔解除失表
+                MessageListAdd(2,SwitchId,64);//道岔解除失表
             }
         }
     }else if(Attribute == "switchOccupy"){//修改道岔占用
-        if(SwitchDataMap.find(SwitchId).value().switchOccupy != data){
-            SwitchDataMap.find(SwitchId).value().switchOccupy = data;
-            if(data == 0x01){
-                MessageListAdd(2,SwitchId,69);//道岔占用
-            }else if(data == 0x02){
-                MessageListAdd(2,SwitchId,70);//道岔解除占用
-            }
-            if(SwitchId == 48 || SwitchId == 14 || SwitchId == 46 || SwitchId == 20){//防护反位
-                if(SwitchId == 48){
-                    SwitchDataMap.find(13).value().switchOccupy = data;//道岔被占用；
-                }else if(SwitchId == 14){
-                    SwitchDataMap.find(47).value().switchOccupy = data;//道岔被占用；
-                }else if(SwitchId == 46){
-                    SwitchDataMap.find(19).value().switchOccupy = data;//道岔被占用；
-                }else if(SwitchId == 20){
-                    SwitchDataMap.find(45).value().switchOccupy = data;//道岔被占用；
-                }
-            }
+        if(SwitchDataMap.find(SwitchId).value().switchOccupy != 0x01){
+            SwitchDataMap.find(SwitchId).value().switchOccupy = 0x01;
+            MessageListAdd(2,SwitchId,69);//道岔占用
+        }else{
+            SwitchDataMap.find(SwitchId).value().switchOccupy = 0x02;
+            MessageListAdd(2,SwitchId,70);//道岔解除占用
         }
+//        if(SwitchId == 48 || SwitchId == 14 || SwitchId == 46 || SwitchId == 20){//防护反位
+//            if(SwitchId == 48){
+//                SwitchDataMap.find(13).value().switchOccupy = data;//道岔被占用；
+//            }else if(SwitchId == 14){
+//                SwitchDataMap.find(47).value().switchOccupy = data;//道岔被占用；
+//            }else if(SwitchId == 46){
+//                SwitchDataMap.find(19).value().switchOccupy = data;//道岔被占用；
+//            }else if(SwitchId == 20){
+//                SwitchDataMap.find(45).value().switchOccupy = data;//道岔被占用；
+//            }
+//        }
     }else if(Attribute == "switchred"){//修改道岔红光带故障
         if(SwitchDataMap.find(SwitchId).value().switchred != data){
             SwitchDataMap.find(SwitchId).value().switchred = data;
@@ -5020,6 +4581,42 @@ void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switc
                 MessageListAdd(2,SwitchId,76);//道岔解除白光带故障
             }
         }
+    }else if(Attribute == "switchRoute"){//修改道岔锁闭
+        if(SwitchDataMap.find(SwitchId).value().switchLock != data){
+            SwitchDataMap.find(SwitchId).value().switchLock = data;
+            if(data == 0x01){
+                MessageListAdd(2,SwitchId,62);//道岔锁闭
+            }else if(data == 0x02){
+                MessageListAdd(2,SwitchId,71);//解除道岔锁闭
+            }
+        }
+    }
+}
+
+//【14辅助·根据信号机id修改信号机状态】
+void InterLock::UpdateSignal(int SignalId,QString Attribute,byte data){
+    if(Attribute == "signalStatus"){//修改号灯颜色（0灰色禁用，1位单红日常，2为双黄，3为双黄闪，4为单黄，5为绿黄，6为单绿,7为单蓝，8为单白,9为红闪，10为单黄闪，11双黄前灯闪，12蓝闪，13白闪，14绿闪）
+        if(SignalsDataMap.find(SignalId).value().signalStatus != data){
+            SignalsDataMap.find(SignalId).value().signalStatus = data;
+        }
+    }if(Attribute == "signalLockStatus"){//修改信号机开放/关闭
+        if(SignalsDataMap.find(SignalId).value().signalLockStatus != data){
+            SignalsDataMap.find(SignalId).value().signalLockStatus = data;
+            if(data == 0x01){
+                MessageListAdd(3,SignalId,37);//信号机开放
+            }else{
+                MessageListAdd(3,SignalId,38);//信号机开放
+            }
+        }
+    }if(Attribute == "blockStatus"){//修改信号机封锁
+        if(SignalsDataMap.find(SignalId).value().blockStatus != 0x01)
+        {
+            SignalsDataMap.find(SignalId).value().blockStatus = 0x01;
+            MessageListAdd(3,SignalId,180);//信号机按钮封锁
+        }else{
+            SignalsDataMap.find(SignalId).value().blockStatus = 0x02;
+            MessageListAdd(3,SignalId,181);//信号机开放
+        }
     }
 }
 
@@ -5027,16 +4624,15 @@ void InterLock::UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switc
 void InterLock::TimerTicked()
 {
     //192.168.4.230
-    //127.0.0.1
     QByteArray data = SectionEncapsalutation();
-    udpSocket->writeDatagram(data,QHostAddress("127.0.0.1"),4401);
+    udpSocket->writeDatagram(data,QHostAddress("192.168.4.216"),4401);//远程UDP服务器
     QByteArray data1 = SignalEncapsalutation();
-    udpSocket->writeDatagram(data1,QHostAddress("127.0.0.1"),4402);
+    udpSocket->writeDatagram(data1,QHostAddress("192.168.4.216"),4402);//远程UDP服务器
     QByteArray data2 = SwitchEncapsalutation();
-    udpSocket->writeDatagram(data2,QHostAddress("127.0.0.1"),4403);
+    udpSocket->writeDatagram(data2,QHostAddress("192.168.4.216"),4403);//远程UDP服务器
 }
 
-//【测试·道岔区段相关初始化】
+//【道岔区段相关初始化】
 void InterLock::TestStationSwitch(){
     QString sectionid;
     int switchname;
@@ -5144,7 +4740,6 @@ void InterLock::SignalDataCache()
         signalData.GreenAllDSStatus = querySignal.value(9).toInt();
         signalData.signalType =querySignal.value(1).toInt();
         signalData.signalLockStatus = 0x02;
-
         SignalsDataMap[querySignal.value(0).toInt()] = signalData;
     }
 }
@@ -5170,7 +4765,6 @@ QByteArray InterLock::SignalEncapsalutation()
         i++;
     }
     signalInitData.append(signalDataInfo);
-
     //发送消息提示框信息
     if(StatusLights.count() != 0){
 

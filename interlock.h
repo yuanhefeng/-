@@ -134,7 +134,13 @@ public:
      * {参数四switchPos道岔定反位}
      */
     void UpdateSwitch(int SwitchId,QString Attribute,byte data,byte switchPos);
-    void TestUnlockState(byte beginSignalID);//【1测试·模拟行车】
+    /*【14辅助·根据信号机id修改信号机状态】
+     * {参数一SignalId信号机ID}
+     * {参数二Attribute信号机属性}
+     * {参数三data信号机属性值}
+     */
+    void UpdateSignal(int SignalId,QString Attribute,byte data);
+    void UnlockState(byte beginSignalID);//【1测试·模拟行车】
     void TestStationSwitch();//【2测试·区段道岔相关】
     QMap<QString,int> StationSwitchDataMap;//【辅助①·区段id和道岔名字相关】（key是sectionid,value是switchname）
     QMap<int,QString> SwitchStationDataMap;//【辅助②·区段id和道岔名字相关】（key是switchname,value是sectionid）
@@ -153,14 +159,13 @@ public:
     void XinHaoCK(byte SignalID);//信号重开
     void DSDS(byte SignalID, byte Status);//灯丝断丝
     void DSFY(byte Status);//灯丝复原
-    void UnlockState(byte beginSignalID);//模拟行车
     void MessageListAdd(int type,int id,int messageid);//信息提示框信息增加
     void HBGZ(byte sectionnameid,byte status);//红白光带故障
     void sleep(unsigned int msec);//非阻塞延迟方法
 
 
     void SetupRoute(byte beginSignalID,byte endSignalID);
-    void RenGong(byte beginSignalID);//总人解    
+    void RenGong(byte beginSignalID);//总人解
     void FenLu(int Snum);//分路不良
     void QuGJ(byte Snum);//区解锁
     void BiSe(byte Direction);//闭塞操作
