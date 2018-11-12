@@ -2,12 +2,15 @@
 #include "ui_interlock.h"
 #include "QTime"
 #include "QApplication"
+#include "piointerlockingdrive.h"
 
 int InterLock::Chance = 0;
 int InterLock::First = 0;
 QList<int> InterLock::MessageList;
 QList<int> InterLock::StatusLights;
 QMap<QString,int> InterLock::LightData;
+
+PioInterlockingDrive pioInterlockingDrive;//调用PO驱动板、PI采集板
 
 //本项目目前所使用的通信协议以及用到的各种状态设置依赖于上一个项目的通信协议
 InterLock::InterLock(QWidget *parent) :
@@ -29,23 +32,19 @@ InterLock::InterLock(QWidget *parent) :
     mSysTrayIcon->show();
     udpSocket = new QUdpSocket(this);
 
-    if(udpSocket->bind(QHostAddress("192.168.4.216"),4001))//本地UDP客户端
+    if(udpSocket->bind(QHostAddress("127.0.0.1"),4001))//本地UDP客户端
     {
         qDebug()<<"XXXXXX2";
     }
 
-  /*  X_Direction = 0xff;
-    XF_Direction = 0xff;
-    XD_Direction = 0xff;
-    S_Direction = 0xff;
-    SF_Direction = 0xff;*/
+    pioInterlockingDrive.SetDOPortSate(0,0);
 
-     beginSignalID = 0xff;
+    beginSignalID = 0xff;
      endSignalID = 0xff;
 
     direction = 0xff;
     udpSocket_receive = new QUdpSocket(this);
-    udpSocket_receive->bind(QHostAddress("192.168.4.216"),4002);//本地UDP客户端
+    udpSocket_receive->bind(QHostAddress("127.0.0.1"),4002);//本地UDP客户端
 
     timer = new QTimer(this);
     connect(timer, SIGNAL(timeout()), this, SLOT(TimerTicked()));
@@ -4039,6 +4038,8 @@ int InterLock::TestStationSwitchFZ(QString SectionId,QString beginSignalName){
                 return switchid.toInt();
              }
          }
+    }else{
+        return 0;
     }
 }
 
@@ -4374,12 +4375,12 @@ void InterLock::UpdateSwitchLock(int switchid,byte data){
 //【10辅助·修改区段的占用(模拟行车专用)】
 void InterLock::UpdateSectionStatus(QString sectionid,byte data){
     if(SectionsDataMap.find(sectionid).value().sectionStatus != data){
-        SectionsDataMap.find(sectionid).value().sectionStatus = data;
-        if(data == 0x01){
+        if(data == 0x01 && SectionsDataMap.find(sectionid).value().sectionStatus != 0x01){
             MessageListAdd(1,sectionid.toInt(),1);
-        }else if(data == 0x02){
+        }else if(data == 0x02 && SectionsDataMap.find(sectionid).value().sectionStatus != 0x02){
             MessageListAdd(1,sectionid.toInt(),7);
         }
+        SectionsDataMap.find(sectionid).value().sectionStatus = data;
     }
 }
 
@@ -4413,10 +4414,10 @@ void InterLock::UpdateSection(QString SectionId,QString Attribute,byte data){
     }else if(Attribute == "sectionStatus"){//修改区段占用
         if(SectionsDataMap.find(SectionId).value().sectionStatus != 0x01){
            SectionsDataMap.find(SectionId).value().sectionStatus = 0x01;
-           MessageListAdd(1,SectionId.toInt(),1);//区段占用
+           //MessageListAdd(1,SectionId.toInt(),1);//区段占用
         }else{
             SectionsDataMap.find(SectionId).value().sectionStatus = 0x02;
-            MessageListAdd(1,SectionId.toInt(),7);//区段解除占用
+            //MessageListAdd(1,SectionId.toInt(),7);//区段解除占用
         }
     }else if(Attribute == "SectionWhiteObstacle"){//修改区段白光带故障
         if(SectionsDataMap.find(SectionId).value().SectionWhiteObstacle != data){
@@ -4624,12 +4625,15 @@ void InterLock::UpdateSignal(int SignalId,QString Attribute,byte data){
 void InterLock::TimerTicked()
 {
     //192.168.4.230
+    portDIStates = NULL;
+    portDIStates = pioInterlockingDrive.ReadDiPortState();
+    //QByteArray data = SectionDataEncapsulation();
     QByteArray data = SectionEncapsalutation();
-    udpSocket->writeDatagram(data,QHostAddress("192.168.4.216"),4401);//远程UDP服务器
+    udpSocket->writeDatagram(data,QHostAddress("127.0.0.1"),4401);//远程UDP服务器
     QByteArray data1 = SignalEncapsalutation();
-    udpSocket->writeDatagram(data1,QHostAddress("192.168.4.216"),4402);//远程UDP服务器
+    udpSocket->writeDatagram(data1,QHostAddress("127.0.0.1"),4402);//远程UDP服务器
     QByteArray data2 = SwitchEncapsalutation();
-    udpSocket->writeDatagram(data2,QHostAddress("192.168.4.216"),4403);//远程UDP服务器
+    udpSocket->writeDatagram(data2,QHostAddress("127.0.0.1"),4403);//远程UDP服务器
 }
 
 //【道岔区段相关初始化】
@@ -4689,7 +4693,8 @@ QByteArray InterLock::SectionEncapsalutation()
     QByteArray frameEnd("\x59\x4F\x44\x4F",4);
     QByteArray SectionDataInfo;
     QByteArray SectionInitData;
-    SectionData SectioData;int i = 0;
+    SectionData SectioData;
+    int i = 0;
     QMap<QString,SectionData>::iterator it;
     SectionInitData.resize(54*sizeof(SectioData));
     byte sectionNr = SectionsDataMap.count();
@@ -4829,13 +4834,98 @@ QByteArray InterLock::SwitchEncapsalutation()
     return switchInitData;
 }
 
-//按钮1
+//继电器驱动板测试
 void InterLock::on_pushButton_clicked()
 {
-    //SetupRoute(1,8);
+    if(SectionsDataMap.find("1").value().sectionStatus == 0x01){
+        pioInterlockingDrive.SetDOPortSate(0,0x20);
+        //0x20：十六进制转二进制为100000，第5位继电器吸起
+    }else{
+        pioInterlockingDrive.SetDOPortSate(0,0x00);
+    }
 }
 //按钮2
 void InterLock::on_pushButton_2_clicked()
 {
     //RemoveRoute(1,1);
+}
+
+//PI板采集测试
+QByteArray InterLock::SectionDataEncapsulation()
+{
+    if(1 == ((portDIStates[0] >> 0) & 0x01))
+    {
+        SectionsDataMap.find("2").value().sectionStatus = 0x02;
+    }
+    else
+    {
+        SectionsDataMap.find("2").value().sectionStatus = 0x01;
+    }
+    if(1 == ((portDIStates[0] >> 1) & 0x01))
+    {
+        SectionsDataMap.find("3").value().sectionStatus = 0x02;
+    }
+    else
+    {
+        SectionsDataMap.find("3").value().sectionStatus = 0x01;
+    }
+    if(1 == ((portDIStates[0] >> 1) & 0x01))
+    {
+        SectionsDataMap.find("4").value().sectionStatus = 0x02;
+    }
+    else
+    {
+        SectionsDataMap.find("4").value().sectionStatus = 0x01;
+    }
+    //获取采集板信息（驱采一致判定功能用）
+    if((portDIStates[2] >> 0) & 0x01){
+    }else{
+    }
+    if((portDIStates[2] >> 1) & 0x01){
+    }else{
+    }
+    if((portDIStates[2] >> 2) & 0x01){
+    }else{
+    }
+    if((portDIStates[2] >> 3) & 0x01){
+    }else{
+    }
+    QByteArray frameHead("\x10\x00\x00\x00\x00\x10\x10\x01\x4a\x98\x07\x00",12);
+    QByteArray frameEnd("\x59\x4F\x44\x4F",4);
+    QByteArray SectionDataInfo;
+    QByteArray SectionInitData;
+    SectionData SectioData;
+    int i = 0;
+    QMap<QString,SectionData>::iterator it;
+    SectionInitData.resize(54*sizeof(SectioData));
+    byte sectionNr = SectionsDataMap.count();
+    frameHead[1] = (sectionNr*9)+5;
+    frameHead[11] = sectionNr;
+    SectionDataInfo.append(frameHead);
+    SectionDataInfo.append(First);
+    if(First != 0){
+       First = 0;
+    }
+    for(it = SectionsDataMap.begin();it != SectionsDataMap.end();++it)
+    {
+        memcpy(SectionInitData.data()+i*sizeof(it.value()),&it.value(),sizeof(it.value()));
+        i++;
+    }
+    SectionDataInfo.append(SectionInitData);
+
+    //发送消息提示框信息
+    if(MessageList.count() != 0){
+
+        QByteArray MessageSend;
+        for(int j = 0;j < MessageList.count(); j++)
+        {
+            MessageSend.append(MessageList[j]);
+        }
+
+        SectionDataInfo.append(MessageSend);
+        //清空发送消息提示框信息
+        MessageList.clear();
+    }
+    SectionDataInfo.append(frameEnd);
+    return SectionDataInfo;
 }

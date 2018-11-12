@@ -48,8 +48,8 @@ public:
     void retranslateUi(QWidget *InterLock)
     {
         InterLock->setWindowTitle(QApplication::translate("InterLock", "InterLock", Q_NULLPTR));
-        pushButton->setText(QApplication::translate("InterLock", "\350\256\276\347\275\256\350\277\233\350\267\257", Q_NULLPTR));
-        pushButton_2->setText(QApplication::translate("InterLock", "\345\217\226\346\266\210\350\277\233\350\267\257", Q_NULLPTR));
+        pushButton->setText(QApplication::translate("InterLock", "\347\273\247\347\224\265\345\231\250\345\220\270\350\265\267", Q_NULLPTR));
+        pushButton_2->setText(QApplication::translate("InterLock", "\347\273\247\347\224\265\345\231\250\350\220\275\344\270\213", Q_NULLPTR));
     } // retranslateUi
 
 };

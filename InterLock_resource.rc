@@ -1,6 +1,6 @@
 #include <windows.h>
 
-IDI_ICON1	ICON	DISCARDABLE	"C:\\Users\\hjddy\\Desktop\\zhenghe0929\\InterLock1012\\app.ico"
+IDI_ICON1	ICON	DISCARDABLE	"G:\\GitQtHome\\-\\InterLockGit1019\\app.ico"
 
 VS_VERSION_INFO VERSIONINFO
 	FILEVERSION 0,0,0,0

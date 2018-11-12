@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include "piointerlockingdrive.h" //调用PO驱动板、PI采集板
 
 typedef unsigned char byte;
 struct SectionData
@@ -65,14 +66,14 @@ struct LineRuleData
 
 
 
-enum line
-{
-    IN = 0,                               //进站
-    OUT = 1,                              //出站
-    INOUT = 2,                            //引导
-    TONG = 3,                             //通路
-    DIAO = 4                              //调车
-};
+//enum line
+//{
+//    IN = 0,                               //进站
+//    OUT = 1,                              //出站
+//    INOUT = 2,                            //引导
+//    TONG = 3,                             //通路
+//    DIAO = 4                              //调车
+//};
 
 enum signalColor
 {
@@ -103,7 +104,6 @@ public:
 
    // byte X_Direction,XF_Direction,XD_Direction,S_Direction,SF_Direction;
     byte beginSignalID,endSignalID;
-
     byte direction;
 
     void SectionDataCache();
@@ -183,6 +183,9 @@ public:
     static QList<int> MessageList;
     static QList<int> StatusLights;
     static QMap<QString,int> LightData;
+
+    QByteArray SectionDataEncapsulation();//PI板采集
+    quint8 *portDIStates;//PI板状态
 public slots:
     void readPendingDatagrams();
     void TimerTicked();
